@@ -10,18 +10,43 @@ import (
 	"time"
 )
 
+// Parse generates a stream of ReplayItems from the given PostgreSQL errlog. Log line
+// parsing errors are returned down the errs channel, and we signal having finished our
+// parsing by sending a value down the done channel.
+func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
+	lastItems := map[SessionID]ReplayItem{}
+	previousForSession := func(id SessionID) ReplayItem { return lastItems[id] }
+	scanner := NewLogScanner(errlog)
+
+	items, errs, done := make(chan ReplayItem), make(chan error), make(chan error)
+
+	go func() {
+		for scanner.Scan() {
+			item, err := ParseReplayItem(scanner.Text(), previousForSession)
+			if err != nil {
+				errs <- err
+			}
+
+			if item != nil {
+				lastItems[item.SessionID()] = item
+				items <- item
+			}
+		}
+
+		done <- scanner.Err()
+
+		close(items)
+		close(done)
+		close(errs)
+	}()
+
+	return items, errs, done
+}
+
 type ReplayType int
 type SessionID string
 type QueryString string
 type StatementName string
-
-const (
-	LogConnectionAuthorized       = "LOG:  connection authorized: "
-	LogConnectionDisconnect       = "LOG:  disconnection: "
-	LogStatement                  = "LOG:  statement: "
-	LogExtendedProtocolExecute    = "LOG:  execute <unnamed>: "
-	LogExtendedProtocolParameters = "DETAIL:  parameters: "
-)
 
 type ReplayItem interface {
 	SessionID() SessionID
@@ -51,27 +76,20 @@ type ExecuteItem struct {
 	Parameters []interface{}
 }
 
-func Parse(errlog io.Reader) (chan ReplayItem, error) {
-	lastItems := map[SessionID]ReplayItem{}
-	previousForSession := func(id SessionID) ReplayItem { return lastItems[id] }
-
-	scanner := NewLogScanner(errlog)
-	for scanner.Scan() {
-		item, err := ParseReplayItem(scanner.Text(), previousForSession)
-		if err != nil {
-			logger.Log("error", err.Error())
-		}
-
-		if item != nil {
-			lastItems[item.SessionID()] = item
-		}
-	}
-
-	return nil, nil
-}
+const (
+	LogConnectionAuthorized       = "LOG:  connection authorized: "
+	LogConnectionDisconnect       = "LOG:  disconnection: "
+	LogStatement                  = "LOG:  statement: "
+	LogExtendedProtocolExecute    = "LOG:  execute <unnamed>: "
+	LogExtendedProtocolParameters = "DETAIL:  parameters: "
+)
 
 // ParseReplayItem constructs a ReplayItem from Postgres errlogs. The format we accept is
 // log_line_prefix='%m|%u|%d|%c|', so we can split by | to discover each component.
+//
+// The previousForSession function allows retrieval of the ReplayItem that was previously
+// parsed for the given session, as extended query bind log lines will be parsed into
+// parameters for the previous execute, rather than producing an item themselves.
 func ParseReplayItem(logline string, previousForSession func(SessionID) ReplayItem) (ReplayItem, error) {
 	tokens := strings.SplitN(logline, "|", 5)
 	if len(tokens) != 5 {
