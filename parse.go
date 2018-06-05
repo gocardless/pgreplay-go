@@ -10,27 +10,46 @@ import (
 	"time"
 )
 
+// ItemBufferSize defines the size of the channel buffer when parsing ReplayItems.
+// Allowing the channel to buffer makes a significant throughput improvement to the
+// parsing.
+var ItemBufferSize = 100
+
 // Parse generates a stream of ReplayItems from the given PostgreSQL errlog. Log line
 // parsing errors are returned down the errs channel, and we signal having finished our
 // parsing by sending a value down the done channel.
 func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
-	lastItems := map[SessionID]ReplayItem{}
-	previousForSession := func(id SessionID) ReplayItem { return lastItems[id] }
-	scanner := NewLogScanner(errlog)
+	previousItems := map[SessionID]ReplayItem{}
+	loglinebuffer, parsebuffer := make([]byte, MaxLogLineSize), make([]byte, MaxLogLineSize)
+	scanner := NewLogScanner(errlog, loglinebuffer)
 
-	items, errs, done := make(chan ReplayItem), make(chan error), make(chan error)
+	items, errs, done := make(chan ReplayItem, ItemBufferSize), make(chan error), make(chan error)
 
 	go func() {
 		for scanner.Scan() {
-			item, err := ParseReplayItem(scanner.Text(), previousForSession)
+			item, err := ParseReplayItem(scanner.Text(), previousItems, parsebuffer)
 			if err != nil {
 				errs <- err
 			}
 
 			if item != nil {
-				lastItems[item.SessionID()] = item
-				items <- item
+				previous, hasPrevious := previousItems[item.SessionID()]
+				if hasPrevious {
+					delete(previousItems, item.SessionID())
+					items <- previous
+				}
+
+				previousItems[item.SessionID()] = item
 			}
+		}
+
+		for _, item := range previousItems {
+			items <- item
+		}
+
+		// Flush the item channel by pushing nil values up-to capacity
+		for i := 0; i < ItemBufferSize; i++ {
+			items <- nil
 		}
 
 		done <- scanner.Err()
@@ -76,21 +95,31 @@ type ExecuteItem struct {
 	Parameters []interface{}
 }
 
+// MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
+// line. It is possible to pass really large arrays of parameters to Postgres queries
+// which is why this has to be so large.
+var MaxLogLineSize = 10 * 1024 * 1024
+var InitialScannerBufferSize = 10 * 10
+
 const (
 	LogConnectionAuthorized       = "LOG:  connection authorized: "
+	LogConnectionReceived         = "LOG:  connection received: "
 	LogConnectionDisconnect       = "LOG:  disconnection: "
 	LogStatement                  = "LOG:  statement: "
+	LogDuration                   = "LOG:  duration: "
 	LogExtendedProtocolExecute    = "LOG:  execute <unnamed>: "
 	LogExtendedProtocolParameters = "DETAIL:  parameters: "
+	LogDetail                     = "DETAIL:  "
+	LogError                      = "ERROR:  "
 )
 
 // ParseReplayItem constructs a ReplayItem from Postgres errlogs. The format we accept is
 // log_line_prefix='%m|%u|%d|%c|', so we can split by | to discover each component.
 //
-// The previousForSession function allows retrieval of the ReplayItem that was previously
-// parsed for the given session, as extended query bind log lines will be parsed into
-// parameters for the previous execute, rather than producing an item themselves.
-func ParseReplayItem(logline string, previousForSession func(SessionID) ReplayItem) (ReplayItem, error) {
+// The previousItems map allows retrieval of the ReplayItem that was previously parsed for
+// a given session, as extended query bind log lines will be parsed into parameters for
+// the previous execute, rather than producing an item themselves.
+func ParseReplayItem(logline string, previousItems map[SessionID]ReplayItem, buffer []byte) (ReplayItem, error) {
 	tokens := strings.SplitN(logline, "|", 5)
 	if len(tokens) != 5 {
 		return nil, fmt.Errorf("failed to parse log line: '%s'", logline)
@@ -111,14 +140,11 @@ func ParseReplayItem(logline string, previousForSession func(SessionID) ReplayIt
 		session:  SessionID(session),
 	}
 
-	// LOG:  connection authorized: user=postgres database=postgres
-	if strings.HasPrefix(msg, LogConnectionAuthorized) {
-		return &ConnectItem{item}, nil
-	}
-
-	// LOG:  disconnection: session time: 0:00:03.861 user=postgres database=postgres host=192.168.99.1 port=51529
-	if strings.HasPrefix(msg, LogConnectionDisconnect) {
-		return &DisconnectItem{item}, nil
+	// LOG:  duration: 0.043 ms
+	// Duration logs mark completion of replay items, and are not of interest for
+	// reproducing traffic. Can safely ignore.
+	if strings.HasPrefix(msg, LogDuration) {
+		return nil, nil
 	}
 
 	// LOG:  statement: select pg_reload_conf();
@@ -135,18 +161,18 @@ func ParseReplayItem(logline string, previousForSession func(SessionID) ReplayIt
 		return &ExecuteItem{
 			Item:       item,
 			Query:      QueryString(strings.TrimPrefix(msg, LogStatement)),
-			Parameters: nil, // this should be populated by a subsequent bind DETAIL
+			Parameters: make([]interface{}, 0), // this will potentially be replaced by subsequent bind
 		}, nil
 	}
 
 	// DETAIL:  parameters: $1 = '1', $2 = NULL
 	if strings.HasPrefix(msg, LogExtendedProtocolParameters) {
-		previous := previousForSession(item.SessionID())
+		previous := previousItems[item.SessionID()]
 		if previous == nil {
 			return nil, fmt.Errorf("cannot process bind parameters without previous item: %s", msg)
 		}
 
-		parameters, err := ParseBindParameters(strings.TrimPrefix(msg, LogExtendedProtocolParameters))
+		parameters, err := ParseBindParameters(strings.TrimPrefix(msg, LogExtendedProtocolParameters), buffer)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse bind parameters: %s", err.Error())
 		}
@@ -161,6 +187,36 @@ func ParseReplayItem(logline string, previousForSession func(SessionID) ReplayIt
 		return nil, fmt.Errorf("bind statements must be preceded by execute statements, not %v", previous)
 	}
 
+	// LOG:  connection authorized: user=postgres database=postgres
+	if strings.HasPrefix(msg, LogConnectionAuthorized) {
+		return &ConnectItem{item}, nil
+	}
+
+	// LOG:  disconnection: session time: 0:00:03.861 user=postgres database=postgres host=192.168.99.1 port=51529
+	if strings.HasPrefix(msg, LogConnectionDisconnect) {
+		return &DisconnectItem{item}, nil
+	}
+
+	// LOG:  connection received: host=192.168.99.1 port=52188
+	// We use connection authorized for replay, and can safely ignore connection received
+	if strings.HasPrefix(msg, LogConnectionReceived) {
+		return nil, nil
+	}
+
+	// ERROR:  invalid value for parameter \"log_destination\": \"/var\"
+	// We don't replicate errors as this should be the minority of our traffic. Can safely
+	// ignore.
+	if strings.HasPrefix(msg, LogError) {
+		return nil, nil
+	}
+
+	// DETAIL:  Unrecognized key word: \"/var/log/postgres/postgres.log\"
+	// The previous condition catches the extended query bind detail statements, and any
+	// other DETAIL logs we can safely ignore.
+	if strings.HasPrefix(msg, LogDetail) {
+		return nil, nil
+	}
+
 	return nil, fmt.Errorf("no parser matches line: %s", msg)
 }
 
@@ -170,36 +226,16 @@ func ParseReplayItem(logline string, previousForSession func(SessionID) ReplayIt
 // $1 = '', $2 = '30', $3 = '2018-05-03 10:26:27.905086+00'
 //
 // ...and this would be parsed into []interface{"", "30", "2018-05-03 10:26:27.905086+00"}
-func ParseBindParameters(input string) ([]interface{}, error) {
-	parameters := make([]interface{}, 0)
-	prefixMatcher := regexp.MustCompile(`^(, )?\$\d+ = `)
+func ParseBindParameters(input string, buffer []byte) ([]interface{}, error) {
+	if buffer == nil {
+		buffer = make([]byte, InitialScannerBufferSize)
+	}
 
 	scanner := bufio.NewScanner(strings.NewReader(input))
-	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		if atEOF && len(data) == 0 {
-			return 0, nil, nil
-		}
+	scanner.Buffer(buffer, MaxLogLineSize)
+	scanner.Split(bindParametersSplitFunc)
 
-		prefix := prefixMatcher.Find(data)
-		if len(prefix) == 0 {
-			return 0, nil, fmt.Errorf("could not parse parameter: %s", string(data))
-		}
-
-		advance = len(prefix)
-		if bytes.HasPrefix(data[advance:], []byte("NULL")) {
-			return advance + 4, []byte("NULL"), nil
-		}
-
-		closingIdx := findClosingTag(string(data[advance+1:]), "'", "''")
-		if closingIdx == -1 {
-			return 0, nil, fmt.Errorf("could not find closing ' for parameter: %s", string(data))
-		}
-
-		token = data[advance : advance+2+closingIdx]
-		advance += 2 + closingIdx
-
-		return
-	})
+	parameters := make([]interface{}, 0)
 
 	for scanner.Scan() {
 		token := scanner.Text()
@@ -214,6 +250,34 @@ func ParseBindParameters(input string) ([]interface{}, error) {
 	}
 
 	return parameters, scanner.Err()
+}
+
+var prefixMatcher = regexp.MustCompile(`^(, )?\$\d+ = `)
+
+func bindParametersSplitFunc(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+
+	prefix := prefixMatcher.Find(data)
+	if len(prefix) == 0 {
+		return 0, nil, fmt.Errorf("could not parse parameter: %s", string(data))
+	}
+
+	advance = len(prefix)
+	if bytes.HasPrefix(data[advance:], []byte("NULL")) {
+		return advance + 4, []byte("NULL"), nil
+	}
+
+	closingIdx := findClosingTag(string(data[advance+1:]), "'", "''")
+	if closingIdx == -1 {
+		return 0, nil, fmt.Errorf("could not find closing ' for parameter: %s", string(data))
+	}
+
+	token = data[advance : advance+2+closingIdx]
+	advance += 2 + closingIdx
+
+	return
 }
 
 // findClosingTag will search the given input for the provided marker, finding the first
@@ -244,48 +308,55 @@ func findClosingTag(input, marker, escapeSequence string) (idx int) {
 //
 // ...where a log line can spill over multiple lines, with trailing lines marked with a
 // preceding \t.
-func NewLogScanner(input io.Reader) *bufio.Scanner {
+func NewLogScanner(input io.Reader, buffer []byte) *bufio.Scanner {
+	if buffer == nil {
+		buffer = make([]byte, InitialScannerBufferSize)
+	}
+
 	scanner := bufio.NewScanner(input)
-	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		if atEOF && len(data) == 0 {
+	scanner.Buffer(buffer, MaxLogLineSize)
+	scanner.Split(logLineSplitFunc)
+
+	return scanner
+}
+
+func logLineSplitFunc(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+
+	for {
+		// Only seek to the penultimate byte in data, because we want to safely access the
+		// byte beyond this if we find a newline.
+		offset := bytes.Index(data[advance:len(data)-1], []byte("\n"))
+
+		// If we have no more data to consume but we can't find our delimiter, assume the
+		// entire data slice is our token.
+		if atEOF && offset == -1 {
+			advance = len(data)
+			break
+		}
+
+		// If we can't peek past our newline, then we'll never know if this is a genuine log
+		// line terminator. Signal that we need more content and try again.
+		if offset == -1 {
 			return 0, nil, nil
 		}
 
-		for {
-			// Only seek to the penultimate byte in data, because we want to safely access the
-			// byte beyond this if we find a newline.
-			offset := bytes.Index(data[advance:len(data)-1], []byte("\n"))
+		advance += offset + 1
 
-			// If we have no more data to consume but we can't find our delimiter, assume the
-			// entire data slice is our token.
-			if atEOF && offset == -1 {
-				advance = len(data)
-				break
-			}
-
-			// If we can't peek past our newline, then we'll never know if this is a genuine log
-			// line terminator. Signal that we need more content and try again.
-			if offset == -1 {
-				return 0, nil, nil
-			}
-
-			advance += offset + 1
-
-			// If the character immediately proceeding our newline is not a tab, then we know
-			// we've come to the end of a valid log, and should break out of our loop. We should
-			// only do this if we've genuinely consumed input, i.e., our token is not just
-			// whitespace.
-			if data[advance] != '\t' && len(bytes.TrimSpace(data[0:advance])) > 0 {
-				break
-			}
+		// If the character immediately proceeding our newline is not a tab, then we know
+		// we've come to the end of a valid log, and should break out of our loop. We should
+		// only do this if we've genuinely consumed input, i.e., our token is not just
+		// whitespace.
+		if data[advance] != '\t' && len(bytes.TrimSpace(data[0:advance])) > 0 {
+			break
 		}
+	}
 
-		// We should replace any \n\t with just \n, as that is what a leading \t implies.
-		token = bytes.Replace(data[0:advance], []byte("\n\t"), []byte("\n"), -1)
-		token = bytes.TrimSpace(token)
+	// We should replace any \n\t with just \n, as that is what a leading \t implies.
+	token = bytes.Replace(data[0:advance], []byte("\n\t"), []byte("\n"), -1)
+	token = bytes.TrimSpace(token)
 
-		return advance, token, nil
-	})
-
-	return scanner
+	return advance, token, nil
 }

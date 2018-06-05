@@ -27,8 +27,31 @@ func main() {
 		}
 	*/
 
-	errlog, _ := os.Open("sample.log")
-	Parse(errlog)
+	errlog, err := os.Open(os.Args[1])
+	if err != nil {
+		panic(err)
+	}
+
+	var noOfItems, noOfLogErrs int
+	items, logerrs, errs := Parse(errlog)
+
+	for {
+		select {
+		case item := <-items:
+			if item != nil {
+				noOfItems++
+			}
+		case <-logerrs:
+			noOfLogErrs++
+		case err := <-errs:
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Printf("Parsed %d replay items, with %d errors\n", noOfItems, noOfLogErrs)
+			return
+		}
+	}
 
 	return
 
