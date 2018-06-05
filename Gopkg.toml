@@ -32,3 +32,7 @@
 [[constraint]]
   name = "github.com/jackc/pgx"
   version = "3.1.0"
+
+[[constraint]]
+  name = "github.com/alecthomas/kingpin"
+  version = "2.2.6"
