@@ -1,4 +1,4 @@
-package main
+package pgreplay
 
 import (
 	"bufio"
@@ -52,11 +52,11 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 			items <- nil
 		}
 
-		done <- scanner.Err()
-
 		close(items)
-		close(done)
 		close(errs)
+
+		done <- scanner.Err()
+		close(done)
 	}()
 
 	return items, errs, done
@@ -81,10 +81,10 @@ type Item struct {
 	database string
 }
 
-func (i *Item) Time() time.Time      { return i.ts }
-func (i *Item) SessionID() SessionID { return i.session }
-func (i *Item) User() string         { return i.user }
-func (i *Item) Database() string     { return i.database }
+func (i Item) Time() time.Time      { return i.ts }
+func (i Item) SessionID() SessionID { return i.session }
+func (i Item) User() string         { return i.user }
+func (i Item) Database() string     { return i.database }
 
 type ConnectItem struct{ Item }
 type DisconnectItem struct{ Item }
