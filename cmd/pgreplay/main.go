@@ -71,24 +71,30 @@ func main() {
 	errs, consumeDone := database.Consume(items)
 	poller := time.NewTicker(*pollInterval)
 
+	progress := func(logger kitlog.Logger) kitlog.Logger {
+		return kitlog.With(logger, "consumed", database.Consumed(), "latest", database.Latest())
+	}
+
 	var status int
 
 	for {
 		select {
 		case err := <-errs:
-			logger.Log("event", "consume.error", "error", err)
+			if err != nil {
+				logger.Log("event", "consume.error", "error", err)
+			}
 		case err := <-consumeDone:
 			if err != nil {
 				status = 255
 			}
 
-			logger.Log("event", "consume.finished", "error", err, "status", status)
+			progress(logger).Log("event", "consume.finished", "error", err, "status", status)
 			os.Exit(status)
 
 		// Poll our consumer to determine how much work remains
 		case <-poller.C:
 			if conns, pending := database.Pending(); pending > 0 {
-				logger.Log("event", "consume.pending", "connections", len(conns), "items", pending)
+				progress(logger).Log("event", "consume.pending", "connections", len(conns), "items", pending)
 			}
 		}
 	}
