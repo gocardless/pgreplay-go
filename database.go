@@ -4,12 +4,50 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-	"time"
 
 	"github.com/eapache/channels"
 	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/pgtype"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+var (
+	ConnectionsActive = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "pgreplay",
+			Name:      "connections_active",
+			Help:      "Number of connections currently open against Postgres",
+		},
+	)
+	ConnectionsEstablishedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "pgreplay",
+			Name:      "connections_established_total",
+			Help:      "Number of connections established against Postgres",
+		},
+	)
+	ItemsProcessedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "pgreplay",
+			Name:      "items_processed_total",
+			Help:      "Total count of replay items that have been sent to the database",
+		},
+	)
+	ItemsMostRecentTimestamp = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "pgreplay",
+			Name:      "items_most_recent_timestamp",
+			Help:      "Most recent timestamp of processed items",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(ConnectionsActive)
+	prometheus.MustRegister(ConnectionsEstablishedTotal)
+	prometheus.MustRegister(ItemsProcessedTotal)
+	prometheus.MustRegister(ItemsMostRecentTimestamp)
+}
 
 func NewDatabase(cfg pgx.ConnConfig) (*Database, error) {
 	conn, err := pgx.Connect(cfg)
@@ -28,12 +66,7 @@ type Database struct {
 	cfg         pgx.ConnConfig
 	ConnInfo    *pgtype.ConnInfo
 	connections map[SessionID]Connection
-	consumed    int
-	latest      time.Time
 }
-
-func (d *Database) Consumed() int     { return d.consumed }
-func (d *Database) Latest() time.Time { return d.latest }
 
 // Consume iterates through all the items in the given channel and attempts to process
 // them against the item's session connection. Consume returns two error channels, the
@@ -54,13 +87,13 @@ func (d *Database) Consume(items chan ReplayItem) (chan error, chan error) {
 		Connect:
 
 			if item, ok := item.(*ConnectItem); ok {
-				conn, err := d.Connect(&wg, item.Database(), item.User())
-				if err != nil {
-					errs <- err
-				}
+				if conn, err := d.Connect(&wg, item.Database(), item.User()); err == nil {
+					ConnectionsActive.Inc()
+					ConnectionsEstablishedTotal.Inc()
 
-				d.connections[item.SessionID()] = conn
-				go conn.Start()
+					d.connections[item.SessionID()] = conn
+					go conn.Start()
+				}
 
 				continue
 			}
@@ -142,27 +175,26 @@ type Connection struct {
 func (c Connection) Start() {
 	items := make(chan ReplayItem)
 	channels.Unwrap(c.items, items)
+	var once sync.Once
 
 	for item := range items {
 		if item == nil || c.closed {
 			continue
 		}
 
-		c.database.consumed++
-		if ts := item.Time(); ts.After(c.database.latest) {
-			c.database.latest = ts
-		}
+		ItemsProcessedTotal.Inc()
+		ItemsMostRecentTimestamp.Set(float64(item.Time().UnixNano()))
 
 		switch item := item.(type) {
 		case *DisconnectItem:
-			if c.Conn != nil {
-				c.err = c.Close()
-			}
-			c.closed = true
-			c.items.Close()
-			c.wg.Done()
-
-			return
+			once.Do(func() {
+				if c.Conn != nil {
+					c.err = c.Close()
+				}
+				c.closed = true
+				c.items.Close()
+				c.wg.Done()
+			})
 		case *ExecuteItem:
 			c.Exec(string(item.Query), item.Parameters...)
 		default:
