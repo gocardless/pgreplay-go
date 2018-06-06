@@ -15,6 +15,13 @@ var (
 			Help:      "Number of items filtered by start/finish range",
 		},
 	)
+	ItemsFilterProgressFraction = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "pgreplay",
+			Name:      "items_filter_progress_fraction",
+			Help:      "Fractional progress through filter range, assuming linear distribution",
+		},
+	)
 	ItemsLastStreamedTimestamp = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Namespace: "pgreplay",
@@ -26,6 +33,7 @@ var (
 
 func init() {
 	prometheus.MustRegister(ItemsFilteredTotal)
+	prometheus.MustRegister(ItemsFilterProgressFraction)
 	prometheus.MustRegister(ItemsLastStreamedTimestamp)
 }
 
@@ -44,9 +52,9 @@ func NewStreamer(start, finish *time.Time) Streamer {
 
 // Stream takes all the items from the given items channel and returns a channel that will
 // receive those events at a simulated given rate.
-func (s Streamer) Stream(items chan ReplayItem, rate int) (chan ReplayItem, error) {
+func (s Streamer) Stream(items chan ReplayItem, rate float64) (chan ReplayItem, error) {
 	if rate < 0 {
-		return nil, fmt.Errorf("cannot support negative rates: %d", rate)
+		return nil, fmt.Errorf("cannot support negative rates: %v", rate)
 	}
 
 	out := make(chan ReplayItem)
@@ -62,9 +70,9 @@ func (s Streamer) Stream(items chan ReplayItem, rate int) (chan ReplayItem, erro
 			}
 
 			if diff := item.Time().Sub(lastSeen); diff > 0 {
-				time.Sleep(diff / time.Duration(rate))
+				time.Sleep(time.Duration(float64(diff) / rate))
 				lastSeen = item.Time()
-				ItemsLastStreamedTimestamp.Set(float64(lastSeen.UnixNano()))
+				ItemsLastStreamedTimestamp.Set(float64(lastSeen.Unix()))
 			}
 
 			out <- item
@@ -105,8 +113,16 @@ func (s Streamer) Filter(items chan ReplayItem) chan ReplayItem {
 				continue
 			}
 
-			if s.finish != nil && item.Time().After(*s.finish) {
-				break
+			if s.finish != nil {
+				if item.Time().After(*s.finish) {
+					break
+				}
+
+				if s.start != nil {
+					ItemsFilterProgressFraction.Set(
+						float64(item.Time().Sub(*s.start)) / float64((*s.finish).Sub(*s.start)),
+					)
+				}
 			}
 
 			out <- item

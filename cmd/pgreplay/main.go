@@ -26,7 +26,7 @@ var (
 	datname        = app.Flag("database", "PostgreSQL root database").Default("postgres").String()
 	user           = app.Flag("user", "PostgreSQL root user").Default("postgres").String()
 	errlogFile     = app.Flag("errlog-file", "Path to PostgreSQL errlog").Required().ExistingFile()
-	replayRate     = app.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Int()
+	replayRate     = app.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Float()
 	startFlag      = app.Flag("start", "Play logs from this time onward ("+pgreplay.PostgresTimestampFormat+")").String()
 	finishFlag     = app.Flag("finish", "Stop playing logs at this time ("+pgreplay.PostgresTimestampFormat+")").String()
 	debug          = app.Flag("debug", "Enable debug logging").Default("false").Bool()

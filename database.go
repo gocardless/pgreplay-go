@@ -2,7 +2,6 @@ package pgreplay
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 
 	"github.com/eapache/channels"
@@ -109,7 +108,12 @@ func (d *Database) Consume(items chan ReplayItem) (chan error, chan error) {
 
 		for _, conn := range d.connections {
 			if !conn.closed {
-				conn.items.In() <- &DisconnectItem{}
+				// Non-blocking channel op to avoid race between thinking the conn is closed and
+				// it actually being closed.
+				select {
+				case conn.items.In() <- &DisconnectItem{}:
+				default:
+				}
 			}
 
 			conn.items.Close()
@@ -177,33 +181,29 @@ type Connection struct {
 func (c Connection) Start() {
 	items := make(chan ReplayItem)
 	channels.Unwrap(c.items, items)
-	var once sync.Once
 
 	for item := range items {
-		if item == nil || c.closed {
+		if item == nil {
 			continue
 		}
 
 		ItemsProcessedTotal.Inc()
-		ItemsMostRecentTimestamp.Set(float64(item.Time().UnixNano()))
+		ItemsMostRecentTimestamp.Set(float64(item.Time().Unix()))
 
 		switch item := item.(type) {
-		case *DisconnectItem:
-			once.Do(func() {
-				if c.Conn != nil {
-					c.err = c.Close()
-				}
-				c.closed = true
-				c.wg.Done()
-
-				ConnectionsActive.Dec()
-			})
 		case *ExecuteItem:
 			c.Exec(item.Query, item.Parameters...)
 		case *StatementItem:
 			c.Exec(item.Query)
-		default:
-			panic("sent wrong item to Start " + reflect.TypeOf(item).String())
+		case *DisconnectItem:
+			if c.Conn != nil {
+				c.err = c.Close()
+			}
+			c.closed = true
+			c.wg.Done()
+
+			ConnectionsActive.Dec()
+			return
 		}
 	}
 }
