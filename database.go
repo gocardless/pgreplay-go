@@ -96,6 +96,13 @@ func (d *Database) Consume(items chan ReplayItem) (chan error, chan error) {
 
 			if conn, ok := d.connections[item.SessionID()]; ok {
 				conn.items.In() <- item
+
+				// If we're going to disconnect, then remove this connection from our pool and
+				// close the channel.
+				if _, ok := item.(*DisconnectItem); ok {
+					conn.items.Close()
+					delete(d.connections, item.SessionID())
+				}
 			} else {
 				errs <- fmt.Errorf("no connection for session %s", item.SessionID())
 				item = &ConnectItem{
