@@ -8,12 +8,31 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+var (
+	LogLinesParsedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "pgreplay",
+			Name:      "log_lines_parsed_total",
+			Help:      "Number of log lines parsed since boot",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(LogLinesParsedTotal)
+}
 
 // ItemBufferSize defines the size of the channel buffer when parsing ReplayItems.
 // Allowing the channel to buffer makes a significant throughput improvement to the
 // parsing.
 var ItemBufferSize = 100
+
+// PostgresTimestampFormat is the Go template format that we expect to find our errlog
+var PostgresTimestampFormat = "2006-01-02 15:04:05.000 MST"
 
 // Parse generates a stream of ReplayItems from the given PostgreSQL errlog. Log line
 // parsing errors are returned down the errs channel, and we signal having finished our
@@ -40,6 +59,7 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 				}
 
 				previousItems[item.SessionID()] = item
+				LogLinesParsedTotal.Inc()
 			}
 		}
 
@@ -125,7 +145,7 @@ func ParseReplayItem(logline string, previousItems map[SessionID]ReplayItem, buf
 		return nil, fmt.Errorf("failed to parse log line: '%s'", logline)
 	}
 
-	ts, err := time.Parse("2006-01-02 15:04:05.000 MST", tokens[0])
+	ts, err := time.Parse(PostgresTimestampFormat, tokens[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse log timestamp: '%s': %v", tokens[0], err)
 	}

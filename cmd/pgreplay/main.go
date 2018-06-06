@@ -11,6 +11,7 @@ import (
 	kitlog "github.com/go-kit/kit/log"
 	level "github.com/go-kit/kit/log/level"
 	pgreplay "github.com/gocardless/pgreplay-go"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/jackc/pgx"
@@ -26,8 +27,8 @@ var (
 	user           = app.Flag("user", "PostgreSQL root user").Default("postgres").String()
 	errlogFile     = app.Flag("errlog-file", "Path to PostgreSQL errlog").Required().ExistingFile()
 	replayRate     = app.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Int()
-	startFlag      = app.Flag("start", "Play logs from this time onward").String()
-	finishFlag     = app.Flag("finish", "Stop playing logs at this time").String()
+	startFlag      = app.Flag("start", "Play logs from this time onward ("+pgreplay.PostgresTimestampFormat+")").String()
+	finishFlag     = app.Flag("finish", "Stop playing logs at this time ("+pgreplay.PostgresTimestampFormat+")").String()
 	debug          = app.Flag("debug", "Enable debug logging").Default("false").Bool()
 	pollInterval   = app.Flag("poll-interval", "Interval between polling for finish").Default("5s").Duration()
 	metricsAddress = app.Flag("metrics-address", "Address to bind HTTP metrics listener").Default("127.0.0.1").String()
@@ -88,11 +89,11 @@ func main() {
 	var start, finish *time.Time
 
 	if start, err = parseTimestamp(*startFlag); err != nil {
-		kingpin.Fatalf("--start flag must be valid RFC3339 timestamp")
+		kingpin.Fatalf("--start flag %s", err)
 	}
 
 	if finish, err = parseTimestamp(*finishFlag); err != nil {
-		kingpin.Fatalf("--finish flag must be valid RFC3339 timestamp")
+		kingpin.Fatalf("--finish flag %s", err)
 	}
 
 	stream, err := pgreplay.NewStreamer(start, finish).Stream(items, *replayRate)
@@ -128,11 +129,14 @@ func main() {
 	}
 }
 
+// parseTimestamp parsed a Postgres friendly timestamp
 func parseTimestamp(in string) (*time.Time, error) {
 	if in == "" {
 		return nil, nil
 	}
 
-	t, err := time.Parse(time.RFC3339, in)
-	return &t, err
+	t, err := time.Parse(pgreplay.PostgresTimestampFormat, in)
+	return &t, errors.Wrapf(
+		err, "must be a valid timestamp (%s)", pgreplay.PostgresTimestampFormat,
+	)
 }

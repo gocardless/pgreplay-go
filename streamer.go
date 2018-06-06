@@ -3,7 +3,31 @@ package pgreplay
 import (
 	"fmt"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+var (
+	ItemsFilteredTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "pgreplay",
+			Name:      "items_filtered_total",
+			Help:      "Number of items filtered by start/finish range",
+		},
+	)
+	ItemsLastStreamedTimestamp = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: "pgreplay",
+			Name:      "items_last_streamed_timestamp",
+			Help:      "Timestamp of last streamed item",
+		},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(ItemsFilteredTotal)
+	prometheus.MustRegister(ItemsLastStreamedTimestamp)
+}
 
 // StreamFilterBufferSize is the size of the channel buffer when filtering items for a
 // time range
@@ -37,7 +61,12 @@ func (s Streamer) Stream(items chan ReplayItem, rate int) (chan ReplayItem, erro
 				seenItem = true
 			}
 
-			time.Sleep(item.Time().Sub(lastSeen) / time.Duration(rate))
+			if diff := item.Time().Sub(lastSeen); diff > 0 {
+				time.Sleep(diff / time.Duration(rate))
+				lastSeen = item.Time()
+				ItemsLastStreamedTimestamp.Set(float64(lastSeen.UnixNano()))
+			}
+
 			out <- item
 		}
 
@@ -63,6 +92,8 @@ func (s Streamer) Filter(items chan ReplayItem) chan ReplayItem {
 			if item.Time().After(*s.start) {
 				break
 			}
+
+			ItemsFilteredTotal.Inc()
 		}
 	}
 
