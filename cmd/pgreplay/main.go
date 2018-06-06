@@ -19,19 +19,25 @@ import (
 var logger kitlog.Logger
 
 var (
-	host           = kingpin.Flag("host", "PostgreSQL database host").Required().String()
-	port           = kingpin.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
-	datname        = kingpin.Flag("database", "PostgreSQL root database").Default("postgres").String()
-	user           = kingpin.Flag("user", "PostgreSQL root user").Default("postgres").String()
-	errlogFile     = kingpin.Flag("errlog-file", "Path to PostgreSQL errlog").Required().ExistingFile()
-	debug          = kingpin.Flag("debug", "Enable debug logging").Default("false").Bool()
-	pollInterval   = kingpin.Flag("poll-interval", "Interval between polling for finish").Default("5s").Duration()
-	metricsAddress = kingpin.Flag("metrics-address", "Address to bind HTTP metrics listener").Default("127.0.0.1").String()
-	metricsPort    = kingpin.Flag("metrics-port", "Port to bind HTTP metrics listener").Default("9445").Uint16()
+	app            = kingpin.New("pgreplay", "Replay Postgres logs against database").Version("0.0.1")
+	host           = app.Flag("host", "PostgreSQL database host").Required().String()
+	port           = app.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
+	datname        = app.Flag("database", "PostgreSQL root database").Default("postgres").String()
+	user           = app.Flag("user", "PostgreSQL root user").Default("postgres").String()
+	errlogFile     = app.Flag("errlog-file", "Path to PostgreSQL errlog").Required().ExistingFile()
+	replayRate     = app.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Int()
+	startFlag      = app.Flag("start", "Play logs from this time onward").String()
+	finishFlag     = app.Flag("finish", "Stop playing logs at this time").String()
+	debug          = app.Flag("debug", "Enable debug logging").Default("false").Bool()
+	pollInterval   = app.Flag("poll-interval", "Interval between polling for finish").Default("5s").Duration()
+	metricsAddress = app.Flag("metrics-address", "Address to bind HTTP metrics listener").Default("127.0.0.1").String()
+	metricsPort    = app.Flag("metrics-port", "Port to bind HTTP metrics listener").Default("9445").Uint16()
 )
 
 func main() {
-	kingpin.Parse()
+	if _, err := app.Parse(os.Args[1:]); err != nil {
+		kingpin.Fatalf("%s, try --help", err)
+	}
 
 	logger = kitlog.NewLogfmtLogger(kitlog.NewSyncWriter(os.Stderr))
 	logger = level.NewFilter(logger, level.AllowInfo())
@@ -79,7 +85,22 @@ func main() {
 		}
 	}()
 
-	errs, consumeDone := database.Consume(items)
+	var start, finish *time.Time
+
+	if start, err = parseTimestamp(*startFlag); err != nil {
+		kingpin.Fatalf("--start flag must be valid RFC3339 timestamp")
+	}
+
+	if finish, err = parseTimestamp(*finishFlag); err != nil {
+		kingpin.Fatalf("--finish flag must be valid RFC3339 timestamp")
+	}
+
+	stream, err := pgreplay.NewStreamer(start, finish).Stream(items, *replayRate)
+	if err != nil {
+		kingpin.Fatalf("failed to start streamer: %s", err)
+	}
+
+	errs, consumeDone := database.Consume(stream)
 	poller := time.NewTicker(*pollInterval)
 
 	var status int
@@ -105,4 +126,13 @@ func main() {
 			}
 		}
 	}
+}
+
+func parseTimestamp(in string) (*time.Time, error) {
+	if in == "" {
+		return nil, nil
+	}
+
+	t, err := time.Parse(time.RFC3339, in)
+	return &t, err
 }

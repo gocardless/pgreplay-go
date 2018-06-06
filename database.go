@@ -110,9 +110,12 @@ func (d *Database) Consume(items chan ReplayItem) (chan error, chan error) {
 			}
 		}
 
-		pendingConns, _ := d.Pending()
-		for _, conn := range pendingConns {
-			conn.items.In() <- &DisconnectItem{}
+		for _, conn := range d.connections {
+			if !conn.closed {
+				conn.items.In() <- &DisconnectItem{}
+			}
+
+			conn.items.Close()
 		}
 
 		wg.Wait()
@@ -192,7 +195,6 @@ func (c Connection) Start() {
 					c.err = c.Close()
 				}
 				c.closed = true
-				c.items.Close()
 				c.wg.Done()
 			})
 		case *ExecuteItem:
