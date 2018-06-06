@@ -20,10 +20,18 @@ var (
 			Help:      "Number of log lines parsed since boot",
 		},
 	)
+	LogLinesErrorTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "pgreplay",
+			Name:      "log_lines_error_total",
+			Help:      "Number of log lines that failed to parse",
+		},
+	)
 )
 
 func init() {
 	prometheus.MustRegister(LogLinesParsedTotal)
+	prometheus.MustRegister(LogLinesErrorTotal)
 }
 
 // ItemBufferSize defines the size of the channel buffer when parsing ReplayItems.
@@ -38,7 +46,7 @@ var PostgresTimestampFormat = "2006-01-02 15:04:05.000 MST"
 // parsing errors are returned down the errs channel, and we signal having finished our
 // parsing by sending a value down the done channel.
 func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
-	previousItems := map[SessionID]ReplayItem{}
+	unbounds := map[SessionID]*ExecuteItem{}
 	loglinebuffer, parsebuffer := make([]byte, MaxLogLineSize), make([]byte, MaxLogLineSize)
 	scanner := NewLogScanner(errlog, loglinebuffer)
 
@@ -46,25 +54,38 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 
 	go func() {
 		for scanner.Scan() {
-			item, err := ParseReplayItem(scanner.Text(), previousItems, parsebuffer)
+			item, err := ParseReplayItem(scanner.Text(), unbounds, parsebuffer)
 			if err != nil {
 				errs <- err
+				LogLinesErrorTotal.Inc()
 			}
 
 			if item != nil {
-				previous, hasPrevious := previousItems[item.SessionID()]
-				if hasPrevious {
-					delete(previousItems, item.SessionID())
-					items <- previous
+				// If we've successfully parsed an item, and we had an unbound execute stored in
+				// our buffer for this connection, then we must assume our parsing set the
+				// parameters and send this down our channel.
+				if unbound, ok := unbounds[item.SessionID()]; ok {
+					delete(unbounds, unbound.SessionID())
+					items <- unbound
 				}
 
-				previousItems[item.SessionID()] = item
+				// If this is an execute item, then we don't yet know if we're complete. Our bind
+				// parameters may be yet to follow.
+				if unbound, ok := item.(*ExecuteItem); ok {
+					unbounds[item.SessionID()] = unbound
+				} else {
+					items <- item
+				}
+
 				LogLinesParsedTotal.Inc()
 			}
 		}
 
-		for _, item := range previousItems {
-			items <- item
+		// We've reached the end of our logs, so any unprocessed unbounds will never have
+		// subsequent statements, so we must assume them to be bound and push then down our
+		// channel.
+		for _, maybeBound := range unbounds {
+			items <- maybeBound
 		}
 
 		// Flush the item channel by pushing nil values up-to capacity
@@ -84,8 +105,6 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 
 type ReplayType int
 type SessionID string
-type QueryString string
-type StatementName string
 
 type ReplayItem interface {
 	SessionID() SessionID
@@ -106,13 +125,21 @@ func (i Item) SessionID() SessionID { return i.session }
 func (i Item) User() string         { return i.user }
 func (i Item) Database() string     { return i.database }
 
+type QueryItem struct {
+	Query      string
+	Parameters []interface{}
+}
+
+// We can parse our log lines into the following types
 type ConnectItem struct{ Item }
 type DisconnectItem struct{ Item }
-
+type StatementItem struct {
+	Item
+	QueryItem
+}
 type ExecuteItem struct {
 	Item
-	Query      QueryString
-	Parameters []interface{}
+	QueryItem
 }
 
 // MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
@@ -139,7 +166,7 @@ const (
 // The previousItems map allows retrieval of the ReplayItem that was previously parsed for
 // a given session, as extended query bind log lines will be parsed into parameters for
 // the previous execute, rather than producing an item themselves.
-func ParseReplayItem(logline string, previousItems map[SessionID]ReplayItem, buffer []byte) (ReplayItem, error) {
+func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer []byte) (ReplayItem, error) {
 	tokens := strings.SplitN(logline, "|", 5)
 	if len(tokens) != 5 {
 		return nil, fmt.Errorf("failed to parse log line: '%s'", logline)
@@ -169,42 +196,40 @@ func ParseReplayItem(logline string, previousItems map[SessionID]ReplayItem, buf
 
 	// LOG:  statement: select pg_reload_conf();
 	if strings.HasPrefix(msg, LogStatement) {
-		return &ExecuteItem{
-			Item:       item,
-			Query:      QueryString(strings.TrimPrefix(msg, LogStatement)),
-			Parameters: make([]interface{}, 0),
+		return &StatementItem{
+			Item: item,
+			QueryItem: QueryItem{
+				Query: strings.TrimPrefix(msg, LogStatement),
+			},
 		}, nil
 	}
 
 	// LOG:  execute <unnamed>: select pg_sleep($1)
 	if strings.HasPrefix(msg, LogExtendedProtocolExecute) {
 		return &ExecuteItem{
-			Item:       item,
-			Query:      QueryString(strings.TrimPrefix(msg, LogStatement)),
-			Parameters: make([]interface{}, 0), // this will potentially be replaced by subsequent bind
+			Item: item,
+			QueryItem: QueryItem{
+				Query:      strings.TrimPrefix(msg, LogExtendedProtocolExecute),
+				Parameters: make([]interface{}, 0), // this will potentially be replaced by subsequent bind
+			},
 		}, nil
 	}
 
 	// DETAIL:  parameters: $1 = '1', $2 = NULL
 	if strings.HasPrefix(msg, LogExtendedProtocolParameters) {
-		previous := previousItems[item.SessionID()]
-		if previous == nil {
-			return nil, fmt.Errorf("cannot process bind parameters without previous item: %s", msg)
-		}
+		if unbound, ok := unbounds[item.SessionID()]; ok {
+			parameters, err := ParseBindParameters(strings.TrimPrefix(msg, LogExtendedProtocolParameters), buffer)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse bind parameters: %s", err.Error())
+			}
 
-		parameters, err := ParseBindParameters(strings.TrimPrefix(msg, LogExtendedProtocolParameters), buffer)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse bind parameters: %s", err.Error())
-		}
-
-		if previous, ok := previous.(*ExecuteItem); ok {
 			// These parameters are assigned to the previous item, as this bind should be
 			// associated with a preceding unnamed prepared exec.
-			previous.Parameters = parameters
+			unbound.Parameters = parameters
 			return nil, nil
 		}
 
-		return nil, fmt.Errorf("bind statements must be preceded by execute statements, not %v", previous)
+		return nil, fmt.Errorf("cannot process bind parameters without previous execute item: %s", msg)
 	}
 
 	// LOG:  connection authorized: user=postgres database=postgres

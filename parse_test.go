@@ -37,7 +37,7 @@ func TestParseBindParameters(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			parameters, err := ParseBindParameters(tc.input)
+			parameters, err := ParseBindParameters(tc.input, nil)
 
 			assert.Nil(t, err, "expected no error")
 			assert.EqualValues(t, tc.parameters, parameters)
@@ -87,7 +87,7 @@ func TestLogScanner(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			scanner := NewLogScanner(strings.NewReader(tc.input))
+			scanner := NewLogScanner(strings.NewReader(tc.input), nil)
 			lines := []string{}
 
 			for scanner.Scan() {

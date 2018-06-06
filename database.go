@@ -88,9 +88,6 @@ func (d *Database) Consume(items chan ReplayItem) (chan error, chan error) {
 
 			if item, ok := item.(*ConnectItem); ok {
 				if conn, err := d.Connect(&wg, item.Database(), item.User()); err == nil {
-					ConnectionsActive.Inc()
-					ConnectionsEstablishedTotal.Inc()
-
 					d.connections[item.SessionID()] = conn
 					go conn.Start()
 				}
@@ -147,13 +144,15 @@ func (d *Database) Pending() (conns []Connection, pending int) {
 func (d *Database) Connect(wg *sync.WaitGroup, database, user string) (Connection, error) {
 	cfg := d.cfg
 	cfg.Database, cfg.User = database, user
-	cfg.CustomConnInfo = func(_ *pgx.Conn) (*pgtype.ConnInfo, error) {
-		return d.ConnInfo.DeepCopy(), nil
-	}
+	// cfg.CustomConnInfo = func(_ *pgx.Conn) (*pgtype.ConnInfo, error) {
+	// 	return d.ConnInfo.DeepCopy(), nil
+	// }
 
 	conn, err := pgx.Connect(cfg)
 	if err == nil {
 		wg.Add(1)
+		ConnectionsEstablishedTotal.Inc()
+		ConnectionsActive.Inc()
 	}
 
 	return Connection{
@@ -196,9 +195,13 @@ func (c Connection) Start() {
 				}
 				c.closed = true
 				c.wg.Done()
+
+				ConnectionsActive.Dec()
 			})
 		case *ExecuteItem:
-			c.Exec(string(item.Query), item.Parameters...)
+			c.Exec(item.Query, item.Parameters...)
+		case *StatementItem:
+			c.Exec(item.Query)
 		default:
 			panic("sent wrong item to Start " + reflect.TypeOf(item).String())
 		}
