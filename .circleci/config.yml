@@ -1,0 +1,26 @@
+---
+version: 2
+
+references:
+  docker_golang: &docker_golang
+    docker:
+      - image: golang:1.11
+    working_directory: /go/src/github.com/gocardless/pgreplay-go
+
+jobs:
+  unit-integration:
+    <<: *docker_golang
+    steps:
+      - checkout
+      - run:
+          name: Install ginkgo test runner
+          command: go get github.com/onsi/ginkgo/ginkgo
+      - run:
+          name: Run tests
+          command: ginkgo -race -r -v
+
+workflows:
+  version: 2
+  build-integration:
+    jobs:
+      - unit-integration
