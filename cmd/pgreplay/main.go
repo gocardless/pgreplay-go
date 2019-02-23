@@ -10,7 +10,7 @@ import (
 	"github.com/alecthomas/kingpin"
 	kitlog "github.com/go-kit/kit/log"
 	level "github.com/go-kit/kit/log/level"
-	pgreplay "github.com/gocardless/pgreplay-go"
+	"github.com/gocardless/pgreplay-go/pkg/pgreplay"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -18,9 +18,10 @@ import (
 )
 
 var logger kitlog.Logger
+var Version string // assigned during build
 
 var (
-	app            = kingpin.New("pgreplay", "Replay Postgres logs against database").Version("0.0.1")
+	app            = kingpin.New("pgreplay", "Replay Postgres logs against database").Version(Version)
 	host           = app.Flag("host", "PostgreSQL database host").Required().String()
 	port           = app.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
 	datname        = app.Flag("database", "PostgreSQL root database").Default("postgres").String()
