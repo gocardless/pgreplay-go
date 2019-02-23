@@ -121,7 +121,7 @@ database/sql. The second is to use a pointer to a pointer.
 
     var foo pgtype.Varchar
     var bar *string
-    err := conn.QueryRow("select foo, bar from widgets where id=$1", 42).Scan(&a, &b)
+    err := conn.QueryRow("select foo, bar from widgets where id=$1", 42).Scan(&foo, &bar)
     if err != nil {
         return err
     }
@@ -158,6 +158,13 @@ PostgreSQL point type.
 
 pgx also includes support for custom types implementing the database/sql.Scanner
 and database/sql/driver.Valuer interfaces.
+
+If pgx does cannot natively encode a type and that type is a renamed type (e.g.
+type MyTime time.Time) pgx will attempt to encode the underlying type. While
+this is usually desired behavior it can produce suprising behavior if one the
+underlying type and the renamed type each implement database/sql interfaces and
+the other implements pgx interfaces. It is recommended that this situation be
+avoided by implementing pgx interfaces on the renamed type.
 
 Raw Bytes Mapping
 
@@ -228,6 +235,13 @@ The pgx ConnConfig struct has a TLSConfig field. If this field is
 nil, then TLS will be disabled. If it is present, then it will be used to
 configure the TLS connection. This allows total configuration of the TLS
 connection.
+
+pgx has never explicitly supported Postgres < 9.6's `ssl_renegotiation` option.
+As of v3.3.0, it doesn't send `ssl_renegotiation: 0` either to support Redshift
+(https://github.com/jackc/pgx/pull/476). If you need TLS Renegotiation,
+consider supplying `ConnConfig.TLSConfig` with a non-zero `Renegotiation`
+value and if it's not the default on your server, set `ssl_renegotiation`
+via `ConnConfig.RuntimeParams`.
 
 Logging
 

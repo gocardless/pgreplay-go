@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/pkg/errors"
@@ -287,7 +288,7 @@ func (rows *Rows) Values() ([]interface{}, error) {
 		}
 
 		if dt, ok := rows.conn.ConnInfo.DataTypeForOID(fd.DataType); ok {
-			value := dt.Value
+			value := reflect.New(reflect.ValueOf(dt.Value).Elem().Type()).Interface().(pgtype.Value)
 
 			switch fd.FormatCode {
 			case TextFormatCode:
@@ -367,6 +368,7 @@ type QueryExOptions struct {
 }
 
 func (c *Conn) QueryEx(ctx context.Context, sql string, options *QueryExOptions, args ...interface{}) (rows *Rows, err error) {
+	c.lastStmtSent = false
 	c.lastActivityTime = time.Now()
 	rows = c.getRows(sql, args)
 
@@ -394,6 +396,7 @@ func (c *Conn) QueryEx(ctx context.Context, sql string, options *QueryExOptions,
 	}
 
 	if (options == nil && c.config.PreferSimpleProtocol) || (options != nil && options.SimpleProtocol) {
+		c.lastStmtSent = true
 		err = c.sanitizeAndSendSimpleQuery(sql, args...)
 		if err != nil {
 			rows.fatal(err)
@@ -413,6 +416,7 @@ func (c *Conn) QueryEx(ctx context.Context, sql string, options *QueryExOptions,
 
 		buf = appendSync(buf)
 
+		c.lastStmtSent = true
 		n, err := c.conn.Write(buf)
 		if err != nil && fatalWriteErr(n, err) {
 			rows.fatal(err)
@@ -459,6 +463,7 @@ func (c *Conn) QueryEx(ctx context.Context, sql string, options *QueryExOptions,
 	rows.sql = ps.SQL
 	rows.fields = ps.FieldDescriptions
 
+	c.lastStmtSent = true
 	err = c.sendPreparedQuery(ps, args...)
 	if err != nil {
 		rows.fatal(err)

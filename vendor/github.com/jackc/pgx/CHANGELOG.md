@@ -1,3 +1,61 @@
+# 3.3.0 (December 1, 2018)
+
+## Features
+
+* Add CopyFromReader and CopyToWriter (Murat Kabilov)
+* Add MacaddrArray (Anthony Regeda)
+* Add float types to FieldDescription.Type (David Yamnitsky)
+* Add CheckedOutConnections helper method (MOZGIII)
+* Add host query parameter to support Unix sockets (Jörg Thalheim)
+* Custom cancelation hook for use with PostgreSQL-like databases (James Hartig)
+* Added LastStmtSent for safe retry logic (James Hartig)
+
+## Fixes
+
+* Do not silently ignore assign NULL to \*string
+* Fix issue with JSON and driver.Valuer conversion
+* Fix race with stdlib Driver.configs Open (Greg Curtis)
+
+## Changes
+
+* Connection pool uses connections in queue order instead of stack. This
+  minimized the time any connection is idle vs. any other connection.
+  (Anthony Regeda)
+* FieldDescription.Modifier is int32 instead of uint32
+* tls: stop sending ssl_renegotiation_limit in startup message (Tejas Manohar)
+
+# 3.2.0 (August 7, 2018)
+
+## Features
+
+* Support sslkey, sslcert, and sslrootcert URI params (Sean Chittenden)
+* Allow any scheme in ParseURI (for convenience with cockroachdb) (Sean Chittenden)
+* Add support for domain types
+* Add zerolog logging adaptor (Justin Reagor)
+* Add driver.Connector support / Go 1.10 support (James Lawrence)
+* Allow nested database/sql/driver.Drivers (Jackson Owens)
+* Support int64 and uint64 numeric array (Anthony Regeda)
+* Add nul support to pgtype.Bool (Tarik Demirci)
+* Add types to decode error messages (Damir Vandic)
+
+
+## Fixes
+
+* Fix Rows.Values returning same value for multiple columns of same complex type
+* Fix StartReplication() syntax (steampunkcoder)
+* Fix precision loss for test format geometric types
+* Allows scanning jsonb column into `*json.RawMessage`
+* Allow recovery to savepoint in failed transaction
+* Fix deadlock when CopyFromSource panics
+* Include PreferSimpleProtocol in config Merge (Murat Kabilov)
+
+## Changes
+
+* pgtype.JSON(B).Value now returns []byte instead of string. This allows
+  database/sql to scan json(b) into \*json.RawMessage. This is a tiny behavior
+  change, but database/sql Scan should automatically convert []byte to string, so
+  there shouldn't be any incompatibility.
+
 # 3.1.0 (January 15, 2018)
 
 ## Features

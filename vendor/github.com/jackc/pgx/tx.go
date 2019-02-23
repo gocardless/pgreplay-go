@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/pkg/errors"
@@ -39,6 +40,7 @@ const (
 	TxStatusInProgress      = 0
 	TxStatusCommitFailure   = -1
 	TxStatusRollbackFailure = -2
+	TxStatusInFailure       = -3
 	TxStatusCommitSuccess   = 1
 	TxStatusRollbackSuccess = 2
 )
@@ -70,6 +72,7 @@ func (txOptions *TxOptions) beginSQL() string {
 }
 
 var ErrTxClosed = errors.New("tx is closed")
+var ErrTxInFailure = errors.New("tx failed")
 
 // ErrTxCommitRollback occurs when an error has occurred in a transaction and
 // Commit() is called. PostgreSQL accepts COMMIT on aborted transactions, but
@@ -144,7 +147,8 @@ func (tx *Tx) CommitEx(ctx context.Context) error {
 // defer tx.Rollback() is safe even if tx.Commit() will be called first in a
 // non-error condition.
 func (tx *Tx) Rollback() error {
-	ctx, _ := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	return tx.RollbackEx(ctx)
 }
 
@@ -235,9 +239,30 @@ func (tx *Tx) CopyFrom(tableName Identifier, columnNames []string, rowSrc CopyFr
 	return tx.conn.CopyFrom(tableName, columnNames, rowSrc)
 }
 
+// CopyFromReader delegates to the underlying *Conn
+func (tx *Tx) CopyFromReader(r io.Reader, sql string) error {
+	if tx.status != TxStatusInProgress {
+		return ErrTxClosed
+	}
+
+	return tx.conn.CopyFromReader(r, sql)
+}
+
+// CopyToWriter delegates to the underlying *Conn
+func (tx *Tx) CopyToWriter(w io.Writer, sql string, args ...interface{}) error {
+	if tx.status != TxStatusInProgress {
+		return ErrTxClosed
+	}
+
+	return tx.conn.CopyToWriter(w, sql, args...)
+}
+
 // Status returns the status of the transaction from the set of
 // pgx.TxStatus* constants.
 func (tx *Tx) Status() int8 {
+	if tx.status == TxStatusInProgress && tx.conn.txStatus == 'E' {
+		return TxStatusInFailure
+	}
 	return tx.status
 }
 

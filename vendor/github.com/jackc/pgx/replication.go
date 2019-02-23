@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
 
 	"github.com/jackc/pgx/pgio"
 	"github.com/jackc/pgx/pgproto3"
+	"github.com/jackc/pgx/pgtype"
 )
 
 const (
@@ -211,6 +213,10 @@ func (rc *ReplicationConn) CauseOfDeath() error {
 	return rc.c.CauseOfDeath()
 }
 
+func (rc *ReplicationConn) GetConnInfo() *pgtype.ConnInfo {
+	return rc.c.ConnInfo
+}
+
 func (rc *ReplicationConn) readReplicationMessage() (r *ReplicationMessage, err error) {
 	msg, err := rc.c.rxMsg()
 	if err != nil {
@@ -401,15 +407,14 @@ func (rc *ReplicationConn) TimelineHistory(timeline int) (r *Rows, err error) {
 // This function assumes that slotName has already been created. In order to omit the timeline argument
 // pass a -1 for the timeline to get the server default behavior.
 func (rc *ReplicationConn) StartReplication(slotName string, startLsn uint64, timeline int64, pluginArguments ...string) (err error) {
-	var queryString string
+	queryString := fmt.Sprintf("START_REPLICATION SLOT %s LOGICAL %s", slotName, FormatLSN(startLsn))
 	if timeline >= 0 {
-		queryString = fmt.Sprintf("START_REPLICATION SLOT %s LOGICAL %s TIMELINE %d", slotName, FormatLSN(startLsn), timeline)
-	} else {
-		queryString = fmt.Sprintf("START_REPLICATION SLOT %s LOGICAL %s", slotName, FormatLSN(startLsn))
+		timelineOption := fmt.Sprintf("TIMELINE %d", timeline)
+		pluginArguments = append(pluginArguments, timelineOption)
 	}
 
-	for _, arg := range pluginArguments {
-		queryString += fmt.Sprintf(" %s", arg)
+	if len(pluginArguments) > 0 {
+		queryString += fmt.Sprintf(" ( %s )", strings.Join(pluginArguments, ", "))
 	}
 
 	if err = rc.c.sendQuery(queryString); err != nil {
@@ -436,7 +441,7 @@ func (rc *ReplicationConn) StartReplication(slotName string, startLsn uint64, ti
 
 // Create the replication slot, using the given name and output plugin.
 func (rc *ReplicationConn) CreateReplicationSlot(slotName, outputPlugin string) (err error) {
-	_, err = rc.c.Exec(fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL %s", slotName, outputPlugin))
+	_, err = rc.c.Exec(fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL %s NOEXPORT_SNAPSHOT", slotName, outputPlugin))
 	return
 }
 

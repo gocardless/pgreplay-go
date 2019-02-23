@@ -72,14 +72,20 @@ func (dst *JSON) Get() interface{} {
 func (src *JSON) AssignTo(dst interface{}) error {
 	switch v := dst.(type) {
 	case *string:
-		if src.Status != Present {
-			v = nil
-		} else {
+		if src.Status == Present {
 			*v = string(src.Bytes)
+		} else {
+			return errors.Errorf("cannot assign non-present status to %T", dst)
 		}
 	case **string:
-		*v = new(string)
-		return src.AssignTo(*v)
+		if src.Status == Present {
+			s := string(src.Bytes)
+			*v = &s
+			return nil
+		} else {
+			*v = nil
+			return nil
+		}
 	case *[]byte:
 		if src.Status != Present {
 			*v = nil
@@ -152,7 +158,7 @@ func (dst *JSON) Scan(src interface{}) error {
 func (src *JSON) Value() (driver.Value, error) {
 	switch src.Status {
 	case Present:
-		return string(src.Bytes), nil
+		return src.Bytes, nil
 	case Null:
 		return nil, nil
 	default:
