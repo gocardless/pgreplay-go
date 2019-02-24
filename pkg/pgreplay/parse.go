@@ -15,16 +15,14 @@ import (
 var (
 	LogLinesParsedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "pgreplay",
-			Name:      "log_lines_parsed_total",
-			Help:      "Number of log lines parsed since boot",
+			Name: "pgreplay_log_lines_parsed_total",
+			Help: "Number of log lines parsed since boot",
 		},
 	)
 	LogLinesErrorTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "pgreplay",
-			Name:      "log_lines_error_total",
-			Help:      "Number of log lines that failed to parse",
+			Name: "pgreplay_log_lines_error_total",
+			Help: "Number of log lines that failed to parse",
 		},
 	)
 )

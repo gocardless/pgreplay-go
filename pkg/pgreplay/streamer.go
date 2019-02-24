@@ -10,23 +10,20 @@ import (
 var (
 	ItemsFilteredTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "pgreplay",
-			Name:      "items_filtered_total",
-			Help:      "Number of items filtered by start/finish range",
+			Name: "pgreplay_items_filtered_total",
+			Help: "Number of items filtered by start/finish range",
 		},
 	)
 	ItemsFilterProgressFraction = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "pgreplay",
-			Name:      "items_filter_progress_fraction",
-			Help:      "Fractional progress through filter range, assuming linear distribution",
+			Name: "pgreplay_items_filter_progress_fraction",
+			Help: "Fractional progress through filter range, assuming linear distribution",
 		},
 	)
 	ItemsLastStreamedTimestamp = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "pgreplay",
-			Name:      "items_last_streamed_timestamp",
-			Help:      "Timestamp of last streamed item",
+			Name: "pgreplay_items_last_streamed_timestamp",
+			Help: "Timestamp of last streamed item",
 		},
 	)
 )

@@ -13,30 +13,26 @@ import (
 var (
 	ConnectionsActive = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "pgreplay",
-			Name:      "connections_active",
-			Help:      "Number of connections currently open against Postgres",
+			Name: "pgreplay_connections_active",
+			Help: "Number of connections currently open against Postgres",
 		},
 	)
 	ConnectionsEstablishedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "pgreplay",
-			Name:      "connections_established_total",
-			Help:      "Number of connections established against Postgres",
+			Name: "pgreplay_connections_established_total",
+			Help: "Number of connections established against Postgres",
 		},
 	)
 	ItemsProcessedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Namespace: "pgreplay",
-			Name:      "items_processed_total",
-			Help:      "Total count of replay items that have been sent to the database",
+			Name: "pgreplay_items_processed_total",
+			Help: "Total count of replay items that have been sent to the database",
 		},
 	)
 	ItemsMostRecentTimestamp = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "pgreplay",
-			Name:      "items_most_recent_timestamp",
-			Help:      "Most recent timestamp of processed items",
+			Name: "pgreplay_items_most_recent_timestamp",
+			Help: "Most recent timestamp of processed items",
 		},
 	)
 )
