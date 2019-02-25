@@ -27,6 +27,8 @@ You can turn on logging in a compatible format like so:
 
 ```sql
 ALTER SYSTEM SET log_directory='/postgres-logs';
+ALTER SYSTEM SET log_connections='on';
+ALTER SYSTEM SET log_disconnections='on';
 ALTER SYSTEM SET log_line_prefix='%m|%u|%d|%c|';
 ALTER SYSTEM SET log_min_error_statement='log';
 ALTER SYSTEM SET log_min_messages='error';

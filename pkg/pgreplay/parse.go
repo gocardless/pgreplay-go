@@ -59,12 +59,22 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 			}
 
 			if item != nil {
+				LogLinesParsedTotal.Inc()
+
 				// If we've successfully parsed an item, and we had an unbound execute stored in
-				// our buffer for this connection, then we must assume our parsing set the
-				// parameters and send this down our channel.
+				// our buffer for this connection and we must assume that our parsing bound our
+				// parameters or that there were no parameters for this query. Either way, we
+				// should send this down our channel.
 				if unbound, ok := unbounds[item.SessionID()]; ok {
 					delete(unbounds, unbound.SessionID())
 					items <- unbound
+				}
+
+				// If out item is a BoundExecuteItem then we have confirmation that we only wanted
+				// to match these parameters against our unbound item and continue. We should not
+				// send this item down our channel.
+				if _, ok := item.(BoundExecuteItem); ok {
+					continue
 				}
 
 				// If this is an execute item, then we don't yet know if we're complete. Our bind
@@ -74,8 +84,6 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 				} else {
 					items <- item
 				}
-
-				LogLinesParsedTotal.Inc()
 			}
 		}
 
@@ -139,6 +147,14 @@ type ExecuteItem struct {
 	Item
 	QueryItem
 }
+type PrepareItem struct {
+	Item
+	Name, Query string
+}
+
+// BoundExecuteItem represents an ExecuteItem that is now successfully bound with
+// parameters
+type BoundExecuteItem struct{ *ExecuteItem }
 
 // MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
 // line. It is possible to pass really large arrays of parameters to Postgres queries
@@ -154,6 +170,7 @@ const (
 	LogDuration                   = "LOG:  duration: "
 	LogExtendedProtocolExecute    = "LOG:  execute <unnamed>: "
 	LogExtendedProtocolParameters = "DETAIL:  parameters: "
+	LogNamedPrepareExecute        = "LOG:  execute "
 	LogDetail                     = "DETAIL:  "
 	LogError                      = "ERROR:  "
 )
@@ -213,6 +230,26 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 		}, nil
 	}
 
+	// LOG:  execute name: select pg_sleep($1)
+	if strings.HasPrefix(msg, LogNamedPrepareExecute) {
+		preambleNameColonQuery := msg
+		nameColonQuery := strings.TrimPrefix(preambleNameColonQuery, LogNamedPrepareExecute)
+		query := strings.SplitN(nameColonQuery, ":", 2)[1]
+
+		// TODO: This doesn't exactly replicate what we'd expect from named prepares. Instead
+		// of creating a genuine named prepare, we implement them as unnamed prepared
+		// statements instead. If this parse signature allowed us to return arbitrary items
+		// then we'd be able to create an initial prepare statement followed by a matching
+		// execute, but we can hold off doing this until it becomes a problem.
+		return &ExecuteItem{
+			Item: item,
+			QueryItem: QueryItem{
+				Query:      query,
+				Parameters: make([]interface{}, 0), // hope to be filled by subsequent execute
+			},
+		}, nil
+	}
+
 	// DETAIL:  parameters: $1 = '1', $2 = NULL
 	if strings.HasPrefix(msg, LogExtendedProtocolParameters) {
 		if unbound, ok := unbounds[item.SessionID()]; ok {
@@ -224,9 +261,21 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 			// These parameters are assigned to the previous item, as this bind should be
 			// associated with a preceding unnamed prepared exec.
 			unbound.Parameters = parameters
-			return nil, nil
+			return BoundExecuteItem{unbound}, nil
 		}
 
+		// It's quite normal for us to get here, as Postgres will log the following when
+		// log_min_duration_statement = 0:
+		//
+		//   1. LOG:  duration: 0.XXX ms  parse name: <statement>
+		//   2. LOG:  duration: 0.XXX ms  bind name: <statement>
+		//   3. DETAIL:  parameters: $1 = '<param>', $2 = '<param>', ...
+		//   4. LOG:  execute name: <statement>
+		//   5. DETAIL:  parameters: $1 = '<param>', $2 = '<param>', ...
+		//
+		// The 3rd and 5th entry are the same, but we expect to be matching our detail against
+		// a prior execute log-line. This is just an artifact of Postgres extended query
+		// protocol and the activation of two logging systems which duplicate the same entry.
 		return nil, fmt.Errorf("cannot process bind parameters without previous execute item: %s", msg)
 	}
 

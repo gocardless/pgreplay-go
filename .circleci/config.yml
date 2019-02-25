@@ -5,6 +5,14 @@ references:
   docker_golang: &docker_golang
     docker:
       - image: golang:1.11
+        environment:
+          PGHOST: "127.0.0.1"
+          PGUSER: "postgres"
+      - image: postgres:11.2
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: pgreplay_test
+          POSTGRES_PASSWORD: ""
     working_directory: /go/src/github.com/gocardless/pgreplay-go
 
 jobs:
@@ -16,8 +24,14 @@ jobs:
           name: Install ginkgo test runner
           command: go get github.com/onsi/ginkgo/ginkgo
       - run:
+          name: Install Postgres
+          command: apt-get update && apt-get install -y postgresql-client libpq-dev
+      - run:
+          name: Create test database
+          command: make recreatedb
+      - run:
           name: Run tests
-          command: ginkgo -race -r -v
+          command: ginkgo -race -r
 
 workflows:
   version: 2
