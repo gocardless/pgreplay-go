@@ -1,0 +1,99 @@
+2019-02-25 15:08:27.232 GMT|[unknown]|[unknown]|5c7404eb.d6bd|LOG:  connection received: host=127.0.0.1 port=59103
+2019-02-25 15:08:27.233 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  connection authorized: user=alice database=pgreplay_test
+2019-02-25 15:08:27.236 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.968 ms  parse <unnamed>: select t.oid,
+		case when nsp.nspname in ('pg_catalog', 'public') then t.typname
+			else nsp.nspname||'.'||t.typname
+		end
+	from pg_type t
+	left join pg_type base_type on t.typelem=base_type.oid
+	left join pg_namespace nsp on t.typnamespace=nsp.oid
+	where (
+		  t.typtype in('b', 'p', 'r', 'e')
+		  and (base_type.oid is null or base_type.typtype in('b', 'p', 'r'))
+		)
+2019-02-25 15:08:27.237 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 1.100 ms  bind <unnamed>: select t.oid,
+		case when nsp.nspname in ('pg_catalog', 'public') then t.typname
+			else nsp.nspname||'.'||t.typname
+		end
+	from pg_type t
+	left join pg_type base_type on t.typelem=base_type.oid
+	left join pg_namespace nsp on t.typnamespace=nsp.oid
+	where (
+		  t.typtype in('b', 'p', 'r', 'e')
+		  and (base_type.oid is null or base_type.typtype in('b', 'p', 'r'))
+		)
+2019-02-25 15:08:27.237 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  execute <unnamed>: select t.oid,
+		case when nsp.nspname in ('pg_catalog', 'public') then t.typname
+			else nsp.nspname||'.'||t.typname
+		end
+	from pg_type t
+	left join pg_type base_type on t.typelem=base_type.oid
+	left join pg_namespace nsp on t.typnamespace=nsp.oid
+	where (
+		  t.typtype in('b', 'p', 'r', 'e')
+		  and (base_type.oid is null or base_type.typtype in('b', 'p', 'r'))
+		)
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.326 ms
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.080 ms  parse <unnamed>: select t.oid, t.typname
+	from pg_type t
+	  join pg_type base_type on t.typelem=base_type.oid
+	where t.typtype = 'b'
+	  and base_type.typtype = 'e'
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.124 ms  bind <unnamed>: select t.oid, t.typname
+	from pg_type t
+	  join pg_type base_type on t.typelem=base_type.oid
+	where t.typtype = 'b'
+	  and base_type.typtype = 'e'
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  execute <unnamed>: select t.oid, t.typname
+	from pg_type t
+	  join pg_type base_type on t.typelem=base_type.oid
+	where t.typtype = 'b'
+	  and base_type.typtype = 'e'
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.060 ms
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.055 ms  parse <unnamed>: select t.oid, t.typname, t.typbasetype
+	from pg_type t
+	  join pg_type base_type on t.typbasetype=base_type.oid
+	where t.typtype = 'd'
+	  and base_type.typtype = 'b'
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.157 ms  bind <unnamed>: select t.oid, t.typname, t.typbasetype
+	from pg_type t
+	  join pg_type base_type on t.typbasetype=base_type.oid
+	where t.typtype = 'd'
+	  and base_type.typtype = 'b'
+2019-02-25 15:08:27.238 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  execute <unnamed>: select t.oid, t.typname, t.typbasetype
+	from pg_type t
+	  join pg_type base_type on t.typbasetype=base_type.oid
+	where t.typtype = 'd'
+	  and base_type.typtype = 'b'
+2019-02-25 15:08:27.239 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.102 ms
+2019-02-25 15:08:27.239 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  statement: insert into logs (author, message) values ('alice', 'says hello');
+2019-02-25 15:08:27.239 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.601 ms
+2019-02-25 15:08:27.239 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  statement: insert into logs (author, message) (
+	  select 'alice', format('sees %s logs', count(*)) from logs
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.362 ms
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.088 ms  parse someone_sees_user: insert into logs (author, message) (
+	  select $1, format('sees %s of %s''s logs', count(*), $2::text) from logs where author = $2
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.093 ms  bind someone_sees_user: insert into logs (author, message) (
+	  select $1, format('sees %s of %s''s logs', count(*), $2::text) from logs where author = $2
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|DETAIL:  parameters: $1 = 'alice', $2 = 'alice'
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  execute someone_sees_user: insert into logs (author, message) (
+	  select $1, format('sees %s of %s''s logs', count(*), $2::text) from logs where author = $2
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|DETAIL:  parameters: $1 = 'alice', $2 = 'alice'
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.079 ms
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.042 ms  parse <unnamed>: insert into logs (author, message) (
+	  select $1, format('sees %s of %s''s logs', count(*), $2::text) from logs where author = $2
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.045 ms  bind <unnamed>: insert into logs (author, message) (
+	  select $1, format('sees %s of %s''s logs', count(*), $2::text) from logs where author = $2
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|DETAIL:  parameters: $1 = 'alice', $2 = 'bob'
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  execute <unnamed>: insert into logs (author, message) (
+	  select $1, format('sees %s of %s''s logs', count(*), $2::text) from logs where author = $2
+	);
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|DETAIL:  parameters: $1 = 'alice', $2 = 'bob'
+2019-02-25 15:08:27.240 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.042 ms
+2019-02-25 15:08:27.241 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  disconnection: session time: 0:00:00.009 user=alice database=pgreplay_test host=127.0.0.1 port=59103
