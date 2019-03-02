@@ -60,38 +60,8 @@ func Parse(errlog io.Reader) (chan Item, chan error, chan error) {
 
 			if item != nil {
 				LogLinesParsedTotal.Inc()
-
-				// If we've successfully parsed an item, and we had an unbound execute stored in
-				// our buffer for this connection and we must assume that our parsing bound our
-				// parameters or that there were no parameters for this query. Either way, we
-				// should send this down our channel.
-				if unbound, ok := unbounds[item.GetSessionID()]; ok {
-					delete(unbounds, unbound.GetSessionID())
-					items <- unbound
-				}
-
-				// If out item is a BoundExecuteItem then we have confirmation that we only wanted
-				// to match these parameters against our unbound item and continue. We should not
-				// send this item down our channel.
-				if _, ok := item.(BoundExecute); ok {
-					continue
-				}
-
-				// If this is an execute item, then we don't yet know if we're complete. Our bind
-				// parameters may be yet to follow.
-				if unbound, ok := item.(*Execute); ok {
-					unbounds[item.GetSessionID()] = unbound
-				} else {
-					items <- item
-				}
+				items <- item
 			}
-		}
-
-		// We've reached the end of our logs, so any unprocessed unbounds will never have
-		// subsequent statements, so we must assume them to be bound and push then down our
-		// channel.
-		for _, maybeBound := range unbounds {
-			items <- maybeBound
 		}
 
 		// Flush the item channel by pushing nil values up-to capacity
@@ -131,9 +101,9 @@ const (
 // ParseItem constructs a Item from Postgres errlogs. The format we accept is
 // log_line_prefix='%m|%u|%d|%c|', so we can split by | to discover each component.
 //
-// The previousItems map allows retrieval of the Item that was previously parsed for
-// a given session, as extended query bind log lines will be parsed into parameters for
-// the previous execute, rather than producing an item themselves.
+// The unbounds map allows retrieval of an Execute that was previously parsed for a
+// session, as we expect following log lines to complete the Execute with the parameters
+// it should use.
 func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (Item, error) {
 	tokens := strings.SplitN(logline, "|", 5)
 	if len(tokens) != 5 {
@@ -157,26 +127,31 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 
 	// LOG:  duration: 0.043 ms
 	// Duration logs mark completion of replay items, and are not of interest for
-	// reproducing traffic. Can safely ignore.
+	// reproducing traffic. We should only take an action if there exists an unbound item
+	// for this session, as this log line will confirm the unbound query has no parameters.
 	if strings.HasPrefix(msg, LogDuration) {
+		if unbound, ok := unbounds[details.SessionID]; ok {
+			return unbound.Bind(nil), nil
+		}
+
 		return nil, nil
 	}
 
 	// LOG:  statement: select pg_reload_conf();
 	if strings.HasPrefix(msg, LogStatement) {
-		return &Statement{
-			Details: details,
-			Query:   strings.TrimPrefix(msg, LogStatement),
-		}, nil
+		return &Statement{details, strings.TrimPrefix(msg, LogStatement)}, nil
 	}
 
 	// LOG:  execute <unnamed>: select pg_sleep($1)
+	// An execute log represents a potential statement. When running the extended protocol,
+	// even queries that don't have any arguments will be sent as an unamed prepared
+	// statement. We need to wait for a following DETAIL or duration log to confirm the
+	// statement has been executed.
 	if strings.HasPrefix(msg, LogExtendedProtocolExecute) {
-		return &Execute{
-			Details:    details,
-			Query:      strings.TrimPrefix(msg, LogExtendedProtocolExecute),
-			Parameters: make([]interface{}, 0), // this will potentially be replaced by subsequent bind
-		}, nil
+		query := strings.TrimPrefix(msg, LogExtendedProtocolExecute)
+		unbounds[details.SessionID] = &Execute{details, query}
+
+		return nil, nil
 	}
 
 	// LOG:  execute name: select pg_sleep($1)
@@ -190,11 +165,9 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 		// statements instead. If this parse signature allowed us to return arbitrary items
 		// then we'd be able to create an initial prepare statement followed by a matching
 		// execute, but we can hold off doing this until it becomes a problem.
-		return &Execute{
-			Details:    details,
-			Query:      query,
-			Parameters: make([]interface{}, 0), // hope to be filled by subsequent execute
-		}, nil
+		unbounds[details.SessionID] = &Execute{details, query}
+
+		return nil, nil
 	}
 
 	// DETAIL:  parameters: $1 = '1', $2 = NULL
@@ -205,10 +178,9 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 				return nil, fmt.Errorf("failed to parse bind parameters: %s", err.Error())
 			}
 
-			// These parameters are assigned to the previous item, as this bind should be
-			// associated with a preceding unnamed prepared exec.
-			unbound.Parameters = parameters
-			return BoundExecute{unbound}, nil
+			// Remove the unbound from our cache and bind it
+			delete(unbounds, details.SessionID)
+			return unbound.Bind(parameters), nil
 		}
 
 		// It's quite normal for us to get here, as Postgres will log the following when

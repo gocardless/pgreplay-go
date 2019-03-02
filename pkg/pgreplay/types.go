@@ -15,7 +15,6 @@ type (
 var _ Item = &Connect{}
 var _ Item = &Disconnect{}
 var _ Item = &Statement{}
-var _ Item = &Execute{}
 var _ Item = &BoundExecute{}
 
 type Item interface {
@@ -60,16 +59,29 @@ func (s Statement) Handle(conn *pgx.Conn) error {
 	return err
 }
 
+// Execute is parsed and awaiting arguments. It deliberately lacks a Handle method as it
+// shouldn't be possible this statement to have been parsed without a following duration
+// or detail line that bound it.
 type Execute struct {
 	Details
-	Query      string
-	Parameters []interface{}
+	Query string
 }
 
-func (e Execute) Handle(conn *pgx.Conn) error {
-	_, err := conn.Exec(e.Query, e.Parameters...)
-	return err
+func (e Execute) Bind(parameters []interface{}) BoundExecute {
+	if parameters == nil {
+		parameters = make([]interface{}, 0)
+	}
+
+	return BoundExecute{&e, parameters}
 }
 
 // BoundExecute represents an Execute that is now successfully bound with parameters
-type BoundExecute struct{ *Execute }
+type BoundExecute struct {
+	*Execute
+	Parameters []interface{}
+}
+
+func (e BoundExecute) Handle(conn *pgx.Conn) error {
+	_, err := conn.Exec(e.Query, e.Parameters...)
+	return err
+}
