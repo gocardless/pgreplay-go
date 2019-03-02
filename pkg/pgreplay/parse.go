@@ -32,7 +32,7 @@ func init() {
 	prometheus.MustRegister(LogLinesErrorTotal)
 }
 
-// ItemBufferSize defines the size of the channel buffer when parsing ReplayItems.
+// ItemBufferSize defines the size of the channel buffer when parsing Items.
 // Allowing the channel to buffer makes a significant throughput improvement to the
 // parsing.
 var ItemBufferSize = 100
@@ -40,22 +40,22 @@ var ItemBufferSize = 100
 // PostgresTimestampFormat is the Go template format that we expect to find our errlog
 var PostgresTimestampFormat = "2006-01-02 15:04:05.000 MST"
 
-// Parse generates a stream of ReplayItems from the given PostgreSQL errlog. Log line
+// Parse generates a stream of Items from the given PostgreSQL errlog. Log line
 // parsing errors are returned down the errs channel, and we signal having finished our
 // parsing by sending a value down the done channel.
-func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
-	unbounds := map[SessionID]*ExecuteItem{}
+func Parse(errlog io.Reader) (chan Item, chan error, chan error) {
+	unbounds := map[SessionID]*Execute{}
 	loglinebuffer, parsebuffer := make([]byte, MaxLogLineSize), make([]byte, MaxLogLineSize)
 	scanner := NewLogScanner(errlog, loglinebuffer)
 
-	items, errs, done := make(chan ReplayItem, ItemBufferSize), make(chan error), make(chan error)
+	items, errs, done := make(chan Item, ItemBufferSize), make(chan error), make(chan error)
 
 	go func() {
 		for scanner.Scan() {
-			item, err := ParseReplayItem(scanner.Text(), unbounds, parsebuffer)
+			item, err := ParseItem(scanner.Text(), unbounds, parsebuffer)
 			if err != nil {
-				errs <- err
 				LogLinesErrorTotal.Inc()
+				errs <- err
 			}
 
 			if item != nil {
@@ -65,22 +65,22 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 				// our buffer for this connection and we must assume that our parsing bound our
 				// parameters or that there were no parameters for this query. Either way, we
 				// should send this down our channel.
-				if unbound, ok := unbounds[item.SessionID()]; ok {
-					delete(unbounds, unbound.SessionID())
+				if unbound, ok := unbounds[item.GetSessionID()]; ok {
+					delete(unbounds, unbound.GetSessionID())
 					items <- unbound
 				}
 
 				// If out item is a BoundExecuteItem then we have confirmation that we only wanted
 				// to match these parameters against our unbound item and continue. We should not
 				// send this item down our channel.
-				if _, ok := item.(BoundExecuteItem); ok {
+				if _, ok := item.(BoundExecute); ok {
 					continue
 				}
 
 				// If this is an execute item, then we don't yet know if we're complete. Our bind
 				// parameters may be yet to follow.
-				if unbound, ok := item.(*ExecuteItem); ok {
-					unbounds[item.SessionID()] = unbound
+				if unbound, ok := item.(*Execute); ok {
+					unbounds[item.GetSessionID()] = unbound
 				} else {
 					items <- item
 				}
@@ -109,53 +109,6 @@ func Parse(errlog io.Reader) (chan ReplayItem, chan error, chan error) {
 	return items, errs, done
 }
 
-type ReplayType int
-type SessionID string
-
-type ReplayItem interface {
-	SessionID() SessionID
-	Time() time.Time
-	User() string
-	Database() string
-}
-
-type Item struct {
-	ts       time.Time
-	session  SessionID
-	user     string
-	database string
-}
-
-func (i Item) Time() time.Time      { return i.ts }
-func (i Item) SessionID() SessionID { return i.session }
-func (i Item) User() string         { return i.user }
-func (i Item) Database() string     { return i.database }
-
-type QueryItem struct {
-	Query      string
-	Parameters []interface{}
-}
-
-// We can parse our log lines into the following types
-type ConnectItem struct{ Item }
-type DisconnectItem struct{ Item }
-type StatementItem struct {
-	Item
-	QueryItem
-}
-type ExecuteItem struct {
-	Item
-	QueryItem
-}
-type PrepareItem struct {
-	Item
-	Name, Query string
-}
-
-// BoundExecuteItem represents an ExecuteItem that is now successfully bound with
-// parameters
-type BoundExecuteItem struct{ *ExecuteItem }
-
 // MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
 // line. It is possible to pass really large arrays of parameters to Postgres queries
 // which is why this has to be so large.
@@ -175,13 +128,13 @@ const (
 	LogError                      = "ERROR:  "
 )
 
-// ParseReplayItem constructs a ReplayItem from Postgres errlogs. The format we accept is
+// ParseItem constructs a Item from Postgres errlogs. The format we accept is
 // log_line_prefix='%m|%u|%d|%c|', so we can split by | to discover each component.
 //
-// The previousItems map allows retrieval of the ReplayItem that was previously parsed for
+// The previousItems map allows retrieval of the Item that was previously parsed for
 // a given session, as extended query bind log lines will be parsed into parameters for
 // the previous execute, rather than producing an item themselves.
-func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer []byte) (ReplayItem, error) {
+func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (Item, error) {
 	tokens := strings.SplitN(logline, "|", 5)
 	if len(tokens) != 5 {
 		return nil, fmt.Errorf("failed to parse log line: '%s'", logline)
@@ -195,11 +148,11 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 	// 2018-06-04 13:00:52.366 UTC|postgres|postgres|5b153804.964|<msg>
 	user, database, session, msg := tokens[1], tokens[2], tokens[3], tokens[4]
 
-	item := Item{
-		ts:       ts,
-		user:     user,
-		database: database,
-		session:  SessionID(session),
+	details := Details{
+		Timestamp: ts,
+		SessionID: SessionID(session),
+		User:      user,
+		Database:  database,
 	}
 
 	// LOG:  duration: 0.043 ms
@@ -211,22 +164,18 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 
 	// LOG:  statement: select pg_reload_conf();
 	if strings.HasPrefix(msg, LogStatement) {
-		return &StatementItem{
-			Item: item,
-			QueryItem: QueryItem{
-				Query: strings.TrimPrefix(msg, LogStatement),
-			},
+		return &Statement{
+			Details: details,
+			Query:   strings.TrimPrefix(msg, LogStatement),
 		}, nil
 	}
 
 	// LOG:  execute <unnamed>: select pg_sleep($1)
 	if strings.HasPrefix(msg, LogExtendedProtocolExecute) {
-		return &ExecuteItem{
-			Item: item,
-			QueryItem: QueryItem{
-				Query:      strings.TrimPrefix(msg, LogExtendedProtocolExecute),
-				Parameters: make([]interface{}, 0), // this will potentially be replaced by subsequent bind
-			},
+		return &Execute{
+			Details:    details,
+			Query:      strings.TrimPrefix(msg, LogExtendedProtocolExecute),
+			Parameters: make([]interface{}, 0), // this will potentially be replaced by subsequent bind
 		}, nil
 	}
 
@@ -241,18 +190,16 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 		// statements instead. If this parse signature allowed us to return arbitrary items
 		// then we'd be able to create an initial prepare statement followed by a matching
 		// execute, but we can hold off doing this until it becomes a problem.
-		return &ExecuteItem{
-			Item: item,
-			QueryItem: QueryItem{
-				Query:      query,
-				Parameters: make([]interface{}, 0), // hope to be filled by subsequent execute
-			},
+		return &Execute{
+			Details:    details,
+			Query:      query,
+			Parameters: make([]interface{}, 0), // hope to be filled by subsequent execute
 		}, nil
 	}
 
 	// DETAIL:  parameters: $1 = '1', $2 = NULL
 	if strings.HasPrefix(msg, LogExtendedProtocolParameters) {
-		if unbound, ok := unbounds[item.SessionID()]; ok {
+		if unbound, ok := unbounds[details.SessionID]; ok {
 			parameters, err := ParseBindParameters(strings.TrimPrefix(msg, LogExtendedProtocolParameters), buffer)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse bind parameters: %s", err.Error())
@@ -261,7 +208,7 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 			// These parameters are assigned to the previous item, as this bind should be
 			// associated with a preceding unnamed prepared exec.
 			unbound.Parameters = parameters
-			return BoundExecuteItem{unbound}, nil
+			return BoundExecute{unbound}, nil
 		}
 
 		// It's quite normal for us to get here, as Postgres will log the following when
@@ -281,12 +228,12 @@ func ParseReplayItem(logline string, unbounds map[SessionID]*ExecuteItem, buffer
 
 	// LOG:  connection authorized: user=postgres database=postgres
 	if strings.HasPrefix(msg, LogConnectionAuthorized) {
-		return &ConnectItem{item}, nil
+		return &Connect{details}, nil
 	}
 
 	// LOG:  disconnection: session time: 0:00:03.861 user=postgres database=postgres host=192.168.99.1 port=51529
 	if strings.HasPrefix(msg, LogConnectionDisconnect) {
-		return &DisconnectItem{item}, nil
+		return &Disconnect{details}, nil
 	}
 
 	// LOG:  connection received: host=192.168.99.1 port=52188

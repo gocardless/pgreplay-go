@@ -49,12 +49,12 @@ func NewStreamer(start, finish *time.Time) Streamer {
 
 // Stream takes all the items from the given items channel and returns a channel that will
 // receive those events at a simulated given rate.
-func (s Streamer) Stream(items chan ReplayItem, rate float64) (chan ReplayItem, error) {
+func (s Streamer) Stream(items chan Item, rate float64) (chan Item, error) {
 	if rate < 0 {
 		return nil, fmt.Errorf("cannot support negative rates: %v", rate)
 	}
 
-	out := make(chan ReplayItem)
+	out := make(chan Item)
 
 	go func() {
 		var lastSeen time.Time
@@ -62,13 +62,13 @@ func (s Streamer) Stream(items chan ReplayItem, rate float64) (chan ReplayItem, 
 
 		for item := range s.Filter(items) {
 			if !seenItem {
-				lastSeen = item.Time()
+				lastSeen = item.GetTimestamp()
 				seenItem = true
 			}
 
-			if diff := item.Time().Sub(lastSeen); diff > 0 {
+			if diff := item.GetTimestamp().Sub(lastSeen); diff > 0 {
 				time.Sleep(time.Duration(float64(diff) / rate))
-				lastSeen = item.Time()
+				lastSeen = item.GetTimestamp()
 				ItemsLastStreamedTimestamp.Set(float64(lastSeen.Unix()))
 			}
 
@@ -81,20 +81,20 @@ func (s Streamer) Stream(items chan ReplayItem, rate float64) (chan ReplayItem, 
 	return out, nil
 }
 
-// Filter takes a ReplayItem stream and filters all items that don't match the desired
+// Filter takes a Item stream and filters all items that don't match the desired
 // time range, along with any items that are nil. Filtering of items before our start
 // happens synchronously on first call, which will block initially until matching items
 // are found.
 //
 // This function assumes that items are pushed down the channel in chronological order.
-func (s Streamer) Filter(items chan ReplayItem) chan ReplayItem {
+func (s Streamer) Filter(items chan Item) chan Item {
 	if s.start != nil {
 		for item := range items {
 			if item == nil {
 				continue
 			}
 
-			if item.Time().After(*s.start) {
+			if item.GetTimestamp().After(*s.start) {
 				break
 			}
 
@@ -102,7 +102,7 @@ func (s Streamer) Filter(items chan ReplayItem) chan ReplayItem {
 		}
 	}
 
-	out := make(chan ReplayItem, StreamFilterBufferSize)
+	out := make(chan Item, StreamFilterBufferSize)
 
 	go func() {
 		for item := range items {
@@ -111,13 +111,13 @@ func (s Streamer) Filter(items chan ReplayItem) chan ReplayItem {
 			}
 
 			if s.finish != nil {
-				if item.Time().After(*s.finish) {
+				if item.GetTimestamp().After(*s.finish) {
 					break
 				}
 
 				if s.start != nil {
 					ItemsFilterProgressFraction.Set(
-						float64(item.Time().Sub(*s.start)) / float64((*s.finish).Sub(*s.start)),
+						float64(item.GetTimestamp().Sub(*s.start)) / float64((*s.finish).Sub(*s.start)),
 					)
 				}
 			}
