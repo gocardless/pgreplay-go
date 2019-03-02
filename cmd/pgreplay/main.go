@@ -123,8 +123,8 @@ func main() {
 
 		// Poll our consumer to determine how much work remains
 		case <-poller.C:
-			if conns, pending := database.Pending(); pending > 0 {
-				logger.Log("event", "consume.pending", "connections", len(conns), "items", pending)
+			if connections, items := database.Pending(); connections > 0 {
+				logger.Log("event", "consume.pending", "connections", connections, "items", items)
 			}
 		}
 	}
