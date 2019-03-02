@@ -49,12 +49,13 @@ func NewDatabase(cfg pgx.ConnConfig) (*Database, error) {
 		return nil, err
 	}
 
-	return &Database{cfg, conn.ConnInfo}, conn.Close()
+	return &Database{cfg, conn.ConnInfo, map[SessionID]*Conn{}}, conn.Close()
 }
 
 type Database struct {
 	pgx.ConnConfig
 	*pgtype.ConnInfo
+	conns map[SessionID]*Conn
 }
 
 // Consume iterates through all the items in the given channel and attempts to process
@@ -66,13 +67,12 @@ type Database struct {
 func (d *Database) Consume(items chan Item) (chan error, chan error) {
 	var wg sync.WaitGroup
 
-	conns := map[SessionID]*Conn{}
 	errs, done := make(chan error, 10), make(chan error)
 
 	go func() {
 		for item := range items {
 			var err error
-			conn, ok := conns[item.GetSessionID()]
+			conn, ok := d.conns[item.GetSessionID()]
 
 			// Connection did not exist, so create a new one
 			if !ok {
@@ -81,7 +81,7 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 					continue
 				}
 
-				conns[item.GetSessionID()] = conn
+				d.conns[item.GetSessionID()] = conn
 
 				wg.Add(1)
 				ConnectionsEstablishedTotal.Inc()
@@ -102,7 +102,7 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 
 		// Flush disconnects down each of our connection sessions, ensuring even connections
 		// that we don't have disconnects for in our logs get closed.
-		for _, conn := range conns {
+		for _, conn := range d.conns {
 			if !conn.IsAlive() {
 				// Non-blocking channel op to avoid read-write-race between checking whether the
 				// connection is alive and the channel having been closed
@@ -139,6 +139,23 @@ func (d *Database) Connect(item Item) (*Conn, error) {
 	}
 
 	return &Conn{conn, channels.NewInfiniteChannel()}, nil
+}
+
+// Pending returns a count of the connections that are still active, and how many items
+// are currently pending against all connections.
+//
+// There is a small risk that calling this function could result in a segfault, as Golang
+// maps aren't race-safe with concurrent writes and reads. The alternative implementation
+// is a lot messier though, so let's do this until there become problems.
+func (d *Database) Pending() (connections, items int) {
+	for _, conn := range d.conns {
+		if conn.IsAlive() {
+			connections++
+			items += conn.Len()
+		}
+	}
+
+	return
 }
 
 // Conn represents a single database connection handling a stream of work Items
