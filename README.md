@@ -61,21 +61,24 @@ following filters:
 ```
 $ cat postgresql.log \
 | pv --progress --rate --size "$(du postgresql.log | cut -f1)" \
-| grep -v "LOG:  statement: BEGIN" \                  # remove transactions
+| grep -v "LOG:  statement: BEGIN" \
 | grep -v "LOG:  statement: COMMIT" \
-| grep -v "LOG:  statement: ROLLBACK TO SAVEPOINT" \  # remove savepoints
+| grep -v "LOG:  statement: ROLLBACK TO SAVEPOINT" \
 | grep -v "LOG:  statement: SAVEPOINT" \
 | grep -v "LOG:  statement: RELEASE SAVEPOINT" \
+| grep -v "LOG:  statement: SET LOCAL" \
 | sed 's/pg_try_advisory_lock/pg_try_advisory_lock_shared/g' \
 | sed 's/pg_advisory_unlock/pg_advisory_unlock_shared/g' \
 > postgresql-filtered.log
 ```
 
 By removing transactions we avoid skipping work if any of the transaction
-queries were to fail - the same goes for savepoints. We then modify any advisory
-lock queries to be shared, preventing us from needlessly blocking while still
-requiring the database to perform similar levels of work as the exclusive
-locking.
+queries were to fail - the same goes for savepoints.
+We remove any `SET LOCAL` statements, as having removed transactions these
+configuration settings would be present for the duration of the connection.
+We then modify any advisory lock queries to be shared, preventing us from
+needlessly blocking while still requiring the database to perform similar levels
+of work as the exclusive locking.
 
 These transformations mean our replayed queries won't exactly simulate what we
 saw in production, but that's why we'll compare the performance of these
