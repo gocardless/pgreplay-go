@@ -100,17 +100,8 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 			conn.In() <- item
 		}
 
-		// Flush disconnects down each of our connection sessions, ensuring even connections
-		// that we don't have disconnects for in our logs get closed.
 		for _, conn := range d.conns {
-			if !conn.IsAlive() {
-				// Non-blocking channel op to avoid read-write-race between checking whether the
-				// connection is alive and the channel having been closed
-				select {
-				case conn.In() <- &Disconnect{}:
-				default:
-				}
-			}
+			conn.Close()
 		}
 
 		// Wait for every connection to terminate
@@ -138,7 +129,7 @@ func (d *Database) Connect(item Item) (*Conn, error) {
 		return nil, err
 	}
 
-	return &Conn{conn, channels.NewInfiniteChannel()}, nil
+	return &Conn{conn, channels.NewInfiniteChannel(), sync.Once{}}, nil
 }
 
 // Pending returns a count of the connections that are still active, and how many items
@@ -162,6 +153,11 @@ func (d *Database) Pending() (connections, items int) {
 type Conn struct {
 	*pgx.Conn
 	channels.Channel
+	sync.Once
+}
+
+func (c *Conn) Close() {
+	c.Once.Do(c.Channel.Close)
 }
 
 // Start begins to process the items that are placed into the Conn's channel. We'll finish
@@ -169,7 +165,7 @@ type Conn struct {
 func (c *Conn) Start() error {
 	items := make(chan Item)
 	channels.Unwrap(c.Channel, items)
-	defer c.Channel.Close()
+	defer c.Close()
 
 	for item := range items {
 		if item == nil {
@@ -185,6 +181,14 @@ func (c *Conn) Start() error {
 		if !c.IsAlive() {
 			return err
 		}
+	}
+
+	// If we're still alive after consuming all our items, assume that we finished
+	// processing our logs before we saw this connection be disconnected. We should
+	// terminate ourselves by handling our own disconnect, so we can know when all our
+	// connection are done.
+	if c.IsAlive() {
+		Disconnect{}.Handle(c.Conn)
 	}
 
 	return nil

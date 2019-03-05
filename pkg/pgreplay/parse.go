@@ -131,6 +131,7 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 	// for this session, as this log line will confirm the unbound query has no parameters.
 	if strings.HasPrefix(msg, LogDuration) {
 		if unbound, ok := unbounds[details.SessionID]; ok {
+			delete(unbounds, details.SessionID)
 			return unbound.Bind(nil), nil
 		}
 
@@ -139,7 +140,7 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 
 	// LOG:  statement: select pg_reload_conf();
 	if strings.HasPrefix(msg, LogStatement) {
-		return &Statement{details, strings.TrimPrefix(msg, LogStatement)}, nil
+		return Statement{details, strings.TrimPrefix(msg, LogStatement)}, nil
 	}
 
 	// LOG:  execute <unnamed>: select pg_sleep($1)
@@ -200,12 +201,12 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 
 	// LOG:  connection authorized: user=postgres database=postgres
 	if strings.HasPrefix(msg, LogConnectionAuthorized) {
-		return &Connect{details}, nil
+		return Connect{details}, nil
 	}
 
 	// LOG:  disconnection: session time: 0:00:03.861 user=postgres database=postgres host=192.168.99.1 port=51529
 	if strings.HasPrefix(msg, LogConnectionDisconnect) {
-		return &Disconnect{details}, nil
+		return Disconnect{details}, nil
 	}
 
 	// LOG:  connection received: host=192.168.99.1 port=52188

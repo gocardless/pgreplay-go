@@ -4,7 +4,7 @@ version: 2
 references:
   docker_golang: &docker_golang
     docker:
-      - image: golang:1.11
+      - image: golang:1.12
         environment:
           PGHOST: "127.0.0.1"
           PGUSER: "postgres"
