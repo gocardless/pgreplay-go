@@ -13,6 +13,13 @@ type (
 	SessionID  string
 )
 
+const (
+	ConnectLabel      = "Connect"
+	StatementLabel    = "Statement"
+	BoundExecuteLabel = "BoundExecute"
+	DisconnectLabel   = "Disconnect"
+)
+
 func ItemMarshalJSON(item Item) ([]byte, error) {
 	type envelope struct {
 		Type string `json:"type"`
@@ -21,13 +28,13 @@ func ItemMarshalJSON(item Item) ([]byte, error) {
 
 	switch item.(type) {
 	case Connect, *Connect:
-		return json.Marshal(envelope{Type: "Connect", Item: item})
+		return json.Marshal(envelope{Type: ConnectLabel, Item: item})
 	case Statement, *Statement:
-		return json.Marshal(envelope{Type: "Statement", Item: item})
+		return json.Marshal(envelope{Type: StatementLabel, Item: item})
 	case BoundExecute, *BoundExecute:
-		return json.Marshal(envelope{Type: "BoundExecute", Item: item})
+		return json.Marshal(envelope{Type: BoundExecuteLabel, Item: item})
 	case Disconnect, *Disconnect:
-		return json.Marshal(envelope{Type: "Disconnect", Item: item})
+		return json.Marshal(envelope{Type: DisconnectLabel, Item: item})
 	default:
 		return nil, nil // it's not important for us to serialize this
 	}
@@ -46,10 +53,14 @@ func ItemUnmarshalJSON(payload []byte) (Item, error) {
 	var item Item
 
 	switch envelope.Type {
-	case "Statement":
+	case ConnectLabel:
+		item = &Connect{}
+	case StatementLabel:
 		item = &Statement{}
-	case "BoundExecute":
+	case BoundExecuteLabel:
 		item = &BoundExecute{}
+	case DisconnectLabel:
+		item = &Disconnect{}
 	default:
 		return nil, fmt.Errorf("did not recognise type: %s", envelope.Type)
 	}
