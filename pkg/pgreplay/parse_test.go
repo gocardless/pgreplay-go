@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var time20190225, _ = time.Parse(time.RFC3339, "2019-02-25T15:08:27.222+00:00")
+var time20190225, _ = time.Parse(PostgresTimestampFormat, "2019-02-25 15:08:27.222 GMT")
 
 var _ = Describe("Parse", func() {
 	DescribeTable("Parses",
@@ -38,7 +38,7 @@ var _ = Describe("Parse", func() {
 		Entry(
 			"Extended protocol with duration logs",
 			`
-2019-02-25 15:08:27.232 GMT|[unknown]|[unknown]|5c7404eb.d6bd|LOG:  connection received: host=127.0.0.1 port=59103
+2019-02-25 15:08:27.222 GMT|[unknown]|[unknown]|5c7404eb.d6bd|LOG:  connection received: host=127.0.0.1 port=59103
 2019-02-25 15:08:27.222 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  connection authorized: user=alice database=pgreplay_test
 2019-02-25 15:08:27.222 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 0.968 ms  parse <unnamed>: select t.oid
 2019-02-25 15:08:27.222 GMT|alice|pgreplay_test|5c7404eb.d6bd|LOG:  duration: 1.100 ms  bind <unnamed>: select t.oid
