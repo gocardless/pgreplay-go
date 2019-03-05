@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
-	_ "github.com/onsi/gomega/gstruct"
 )
 
 var time20190225, _ = time.Parse(time.RFC3339, "2019-02-25T15:08:27.222+00:00")
@@ -62,7 +61,7 @@ var _ = Describe("Parse", func() {
 					},
 				},
 				BoundExecute{
-					Execute: &Execute{
+					Execute: Execute{
 						Details: Details{
 							Timestamp: time20190225,
 							SessionID: "5c7404eb.d6bd",
@@ -74,7 +73,7 @@ var _ = Describe("Parse", func() {
 					Parameters: []interface{}{},
 				},
 				BoundExecute{
-					Execute: &Execute{
+					Execute: Execute{
 						Details: Details{
 							Timestamp: time20190225,
 							SessionID: "5c7404eb.d6bd",

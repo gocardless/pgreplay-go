@@ -103,13 +103,11 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 		// Flush disconnects down each of our connection sessions, ensuring even connections
 		// that we don't have disconnects for in our logs get closed.
 		for _, conn := range d.conns {
-			if !conn.IsAlive() {
-				// Non-blocking channel op to avoid read-write-race between checking whether the
-				// connection is alive and the channel having been closed
-				select {
-				case conn.In() <- &Disconnect{}:
-				default:
-				}
+			// Non-blocking channel op to avoid read-write-race between checking whether the
+			// connection is alive and the channel having been closed
+			select {
+			case conn.In() <- &Disconnect{}:
+			default:
 			}
 		}
 

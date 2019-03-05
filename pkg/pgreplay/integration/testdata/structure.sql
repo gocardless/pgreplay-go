@@ -34,7 +34,7 @@ SET default_tablespace = '';
 SET default_with_oids = false;
 
 --
--- Name: logs; Type: TABLE; Schema: public; Owner: lawrence
+-- Name: logs; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.logs (
@@ -44,10 +44,10 @@ CREATE TABLE public.logs (
 );
 
 
-ALTER TABLE public.logs OWNER TO lawrence;
+ALTER TABLE public.logs OWNER TO postgres;
 
 --
--- Name: logs_id_seq; Type: SEQUENCE; Schema: public; Owner: lawrence
+-- Name: logs_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
 --
 
 CREATE SEQUENCE public.logs_id_seq
@@ -59,24 +59,24 @@ CREATE SEQUENCE public.logs_id_seq
     CACHE 1;
 
 
-ALTER TABLE public.logs_id_seq OWNER TO lawrence;
+ALTER TABLE public.logs_id_seq OWNER TO postgres;
 
 --
--- Name: logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: lawrence
+-- Name: logs_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
 --
 
 ALTER SEQUENCE public.logs_id_seq OWNED BY public.logs.id;
 
 
 --
--- Name: logs id; Type: DEFAULT; Schema: public; Owner: lawrence
+-- Name: logs id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.logs ALTER COLUMN id SET DEFAULT nextval('public.logs_id_seq'::regclass);
 
 
 --
--- Name: logs logs_pkey; Type: CONSTRAINT; Schema: public; Owner: lawrence
+-- Name: logs logs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
 ALTER TABLE ONLY public.logs

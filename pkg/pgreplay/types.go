@@ -1,6 +1,8 @@
 package pgreplay
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx"
@@ -10,6 +12,50 @@ type (
 	ReplayType int
 	SessionID  string
 )
+
+func ItemMarshalJSON(item Item) ([]byte, error) {
+	type envelope struct {
+		Type string `json:"type"`
+		Item Item   `json:"item"`
+	}
+
+	switch item.(type) {
+	case Connect, *Connect:
+		return json.Marshal(envelope{Type: "Connect", Item: item})
+	case Statement, *Statement:
+		return json.Marshal(envelope{Type: "Statement", Item: item})
+	case BoundExecute, *BoundExecute:
+		return json.Marshal(envelope{Type: "BoundExecute", Item: item})
+	case Disconnect, *Disconnect:
+		return json.Marshal(envelope{Type: "Disconnect", Item: item})
+	default:
+		return nil, nil // it's not important for us to serialize this
+	}
+}
+
+func ItemUnmarshalJSON(payload []byte) (Item, error) {
+	envelope := struct {
+		Type string          `json:"type"`
+		Item json.RawMessage `json:"item"`
+	}{}
+
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return nil, err
+	}
+
+	var item Item
+
+	switch envelope.Type {
+	case "Statement":
+		item = &Statement{}
+	case "BoundExecute":
+		item = &BoundExecute{}
+	default:
+		return nil, fmt.Errorf("did not recognise type: %s", envelope.Type)
+	}
+
+	return item, json.Unmarshal(envelope.Item, item)
+}
 
 // We support the following types of ReplayItem
 var _ Item = &Connect{}
@@ -64,7 +110,7 @@ func (s Statement) Handle(conn *pgx.Conn) error {
 // or detail line that bound it.
 type Execute struct {
 	Details
-	Query string
+	Query string `json:"query"`
 }
 
 func (e Execute) Bind(parameters []interface{}) BoundExecute {
@@ -72,13 +118,13 @@ func (e Execute) Bind(parameters []interface{}) BoundExecute {
 		parameters = make([]interface{}, 0)
 	}
 
-	return BoundExecute{&e, parameters}
+	return BoundExecute{e, parameters}
 }
 
 // BoundExecute represents an Execute that is now successfully bound with parameters
 type BoundExecute struct {
-	*Execute
-	Parameters []interface{}
+	Execute
+	Parameters []interface{} `json:"parameters"`
 }
 
 func (e BoundExecute) Handle(conn *pgx.Conn) error {
