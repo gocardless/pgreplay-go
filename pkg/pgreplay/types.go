@@ -26,10 +26,10 @@ type Item interface {
 }
 
 type Details struct {
-	Timestamp time.Time
-	SessionID SessionID
-	User      string
-	Database  string
+	Timestamp time.Time `json:"timestamp"`
+	SessionID SessionID `json:"session_id"`
+	User      string    `json:"user"`
+	Database  string    `json:"database"`
 }
 
 func (e Details) GetTimestamp() time.Time { return e.Timestamp }
@@ -51,7 +51,7 @@ func (_ Disconnect) Handle(conn *pgx.Conn) error {
 
 type Statement struct {
 	Details
-	Query string
+	Query string `json:"query"`
 }
 
 func (s Statement) Handle(conn *pgx.Conn) error {
