@@ -1,8 +1,6 @@
 package pgreplay
 
 import (
-	"encoding/json"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -16,36 +14,6 @@ var _ = Describe("Item JSON", func() {
 			Database:  "pgreplay_test",
 		}
 	)
-
-	// We use this as Gomega chokes on these types for some subtle reason I don't
-	// understand. Converting to and from json and comparing the serialized result is the
-	// most robust equivilence.
-	expectEqualUnderJSON := func(a interface{}, b interface{}) {
-		var aa, bb interface{}
-		var err error
-
-		abytes, err := json.Marshal(a)
-		Expect(err).To(Succeed())
-
-		bbytes, err := json.Marshal(b)
-		Expect(err).To(Succeed())
-
-		Expect(json.Unmarshal(abytes, &aa)).To(Succeed())
-		Expect(json.Unmarshal(bbytes, &bb)).To(Succeed())
-
-		Expect(aa).To(Equal(bb))
-	}
-
-	// This confirms that the Marshal and Unmarshal operations are complementary
-	expectIsReversible := func(item Item) {
-		itemJSON, err := ItemMarshalJSON(item)
-		Expect(err).NotTo(HaveOccurred(), "failed to marshal item")
-
-		reversed, err := ItemUnmarshalJSON(itemJSON)
-		Expect(err).NotTo(HaveOccurred(), "failed to unmarshal marshalled item")
-
-		expectEqualUnderJSON(item, reversed)
-	}
 
 	Context("Statement", func() {
 		var item = Statement{details, "select now()"}
@@ -64,10 +32,6 @@ var _ = Describe("Item JSON", func() {
   }
 }`),
 			)
-		})
-
-		It("Is reversible", func() {
-			expectIsReversible(item)
 		})
 	})
 
@@ -89,10 +53,6 @@ var _ = Describe("Item JSON", func() {
   }
 }`),
 			)
-		})
-
-		It("Is reversible", func() {
-			expectIsReversible(item)
 		})
 	})
 })

@@ -11,11 +11,11 @@ import (
 
 var time20190225, _ = time.Parse(PostgresTimestampFormat, "2019-02-25 15:08:27.222 GMT")
 
-var _ = Describe("Parse", func() {
+var _ = Describe("ParseErrlog", func() {
 	DescribeTable("Parses",
 		func(input string, expected []Item) {
 			var items = []Item{}
-			itemsChan, errs, done := Parse(strings.NewReader(input))
+			itemsChan, errs, done := ParseErrlog(strings.NewReader(input))
 			go func() {
 				for _ = range errs {
 					// no-op, just drain the channel

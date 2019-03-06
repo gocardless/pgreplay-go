@@ -37,18 +37,56 @@ func init() {
 // parsing.
 var ItemBufferSize = 100
 
+// MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
+// line. It is possible to pass really large arrays of parameters to Postgres queries
+// which is why this has to be so large.
+var MaxLogLineSize = 10 * 1024 * 1024
+var InitialScannerBufferSize = 10 * 10
+
 // PostgresTimestampFormat is the Go template format that we expect to find our errlog
 var PostgresTimestampFormat = "2006-01-02 15:04:05.000 MST"
 
-// Parse generates a stream of Items from the given PostgreSQL errlog. Log line
+// ParserFunc is the standard interface to provide items from a parsing source
+type ParserFunc func(io.Reader) (items chan Item, errs chan error, done chan error)
+
+// ParseJSON operates on a file of JSON serialized Item elements, and pushes the parsed
+// items down the returned channel.
+func ParseJSON(jsonlog io.Reader) (items chan Item, errs chan error, done chan error) {
+	items, errs, done = make(chan Item, ItemBufferSize), make(chan error), make(chan error)
+
+	go func() {
+		scanner := bufio.NewScanner(jsonlog)
+		scanner.Buffer(make([]byte, InitialScannerBufferSize), MaxLogLineSize)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			item, err := ItemUnmarshalJSON([]byte(line))
+			if err != nil {
+				errs <- err
+			} else {
+				items <- item
+			}
+		}
+
+		close(items)
+		close(errs)
+
+		done <- scanner.Err()
+		close(done)
+	}()
+
+	return
+}
+
+// ParseErrlog generates a stream of Items from the given PostgreSQL errlog. Log line
 // parsing errors are returned down the errs channel, and we signal having finished our
 // parsing by sending a value down the done channel.
-func Parse(errlog io.Reader) (chan Item, chan error, chan error) {
+func ParseErrlog(errlog io.Reader) (items chan Item, errs chan error, done chan error) {
 	unbounds := map[SessionID]*Execute{}
 	loglinebuffer, parsebuffer := make([]byte, MaxLogLineSize), make([]byte, MaxLogLineSize)
 	scanner := NewLogScanner(errlog, loglinebuffer)
 
-	items, errs, done := make(chan Item, ItemBufferSize), make(chan error), make(chan error)
+	items, errs, done = make(chan Item, ItemBufferSize), make(chan error), make(chan error)
 
 	go func() {
 		for scanner.Scan() {
@@ -76,14 +114,8 @@ func Parse(errlog io.Reader) (chan Item, chan error, chan error) {
 		close(done)
 	}()
 
-	return items, errs, done
+	return
 }
-
-// MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
-// line. It is possible to pass really large arrays of parameters to Postgres queries
-// which is why this has to be so large.
-var MaxLogLineSize = 10 * 1024 * 1024
-var InitialScannerBufferSize = 10 * 10
 
 const (
 	LogConnectionAuthorized       = "LOG:  connection authorized: "

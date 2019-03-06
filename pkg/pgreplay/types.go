@@ -57,18 +57,18 @@ func ItemUnmarshalJSON(payload []byte) (Item, error) {
 
 	switch envelope.Type {
 	case ConnectLabel:
-		item = Connect{}
+		item = &Connect{}
 	case StatementLabel:
-		item = Statement{}
+		item = &Statement{}
 	case BoundExecuteLabel:
-		item = BoundExecute{}
+		item = &BoundExecute{}
 	case DisconnectLabel:
-		item = Disconnect{}
+		item = &Disconnect{}
 	default:
 		return nil, fmt.Errorf("did not recognise type: %s", envelope.Type)
 	}
 
-	return item, json.Unmarshal(envelope.Item, &item)
+	return item, json.Unmarshal(envelope.Item, item)
 }
 
 // We support the following types of ReplayItem

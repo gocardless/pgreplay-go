@@ -31,9 +31,11 @@ var (
 	metricsAddress = app.Flag("metrics-address", "Address to bind HTTP metrics listener").Default("127.0.0.1").String()
 	metricsPort    = app.Flag("metrics-port", "Port to bind HTTP metrics listener").Default("9445").Uint16()
 
-	preprocess           = app.Command("preprocess", "Process an errlog file into a pgreplay preprocessed log")
-	preprocessJSONOutput = preprocess.Flag("json-output", "JSON output file").Required().String()
-	preprocessErrlogFile = preprocess.Flag("errlog-file", "Path to PostgreSQL errlog").Required().ExistingFile()
+	filter            = app.Command("filter", "Process an errlog file into a pgreplay preprocessed JSON log")
+	filterJsonInput   = filter.Flag("json-input", "JSON input file").ExistingFile()
+	filterErrlogInput = filter.Flag("errlog-input", "Postgres errlog input file").ExistingFile()
+	filterOutput      = filter.Flag("output", "JSON output file").String()
+	filterNullOutput  = filter.Flag("null-output", "Don't output anything, for testing parsing only").Bool()
 
 	run             = app.Command("run", "Replay from log files against a real database")
 	runHost         = run.Flag("host", "PostgreSQL database host").Required().String()
@@ -42,22 +44,22 @@ var (
 	runUser         = run.Flag("user", "PostgreSQL root user").Default("postgres").String()
 	runReplayRate   = run.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Float()
 	runPollInterval = run.Flag("poll-interval", "Interval between polling for finish").Default("5s").Duration()
-	runErrlogFile   = run.Flag("errlog-file", "Path to PostgreSQL errlog").ExistingFile()
-	runJSONFile     = run.Flag("json-file", "Path to preprocessed pgreplay JSON log file").ExistingFile()
+	runErrlogInput  = run.Flag("errlog-input", "Path to PostgreSQL errlog").ExistingFile()
+	runJsonInput    = run.Flag("json-input", "Path to preprocessed pgreplay JSON log file").ExistingFile()
 )
 
 func main() {
 	command := kingpin.MustParse(app.Parse(os.Args[1:]))
 
 	logger = kitlog.NewLogfmtLogger(kitlog.NewSyncWriter(os.Stderr))
-	logger = level.NewFilter(logger, level.AllowInfo())
+	logger = kitlog.With(logger, "ts", kitlog.DefaultTimestampUTC, "caller", kitlog.DefaultCaller)
+	stdlog.SetOutput(kitlog.NewStdlibAdapter(logger))
 
 	if *debug {
 		logger = level.NewFilter(logger, level.AllowDebug())
+	} else {
+		logger = level.NewFilter(logger, level.AllowInfo())
 	}
-
-	logger = kitlog.With(logger, "ts", kitlog.DefaultTimestampUTC, "caller", kitlog.DefaultCaller)
-	stdlog.SetOutput(kitlog.NewStdlibAdapter(logger))
 
 	go func() {
 		logger.Log("event", "metrics.listen", "address", *metricsAddress, "port", *metricsPort)
@@ -77,35 +79,55 @@ func main() {
 	}
 
 	switch command {
-	case preprocess.FullCommand():
-		output, err := os.Create(*preprocessJSONOutput)
+	case filter.FullCommand():
+		var items chan pgreplay.Item
+
+		switch checkSingleFormat(filterJsonInput, filterErrlogInput) {
+		case filterJsonInput:
+			items = parseLog(*filterJsonInput, pgreplay.ParseJSON)
+		case filterErrlogInput:
+			items = parseLog(*filterErrlogInput, pgreplay.ParseErrlog)
+		}
+
+		// Apply the start and end filters
+		items = pgreplay.NewStreamer(start, finish).Filter(items)
+
+		if *filterNullOutput {
+			logger.Log("event", "filter.null_output", "msg", "Null output enabled, logs won't be serialized")
+			for _ = range items {
+				// no-op
+			}
+
+			return
+		}
+
+		if *filterOutput == "" {
+			kingpin.Fatalf("must provide output file when no --null-output")
+		}
+
+		outputFile, err := os.Create(*filterOutput)
 		if err != nil {
 			kingpin.Fatalf("failed to create output file: %v", err)
 		}
 
-		items := parseErrlog(openLogfile(*preprocessErrlogFile))
-		for item := range pgreplay.NewStreamer(start, finish).Filter(items) {
+		// Buffer the writes by 32MB to enable much faster filtering
+		buffer := bufio.NewWriterSize(outputFile, 32*1000*1000)
+
+		for item := range items {
 			bytes, err := pgreplay.ItemMarshalJSON(item)
 			if err != nil {
 				kingpin.Fatalf("failed to serialize item: %v", err)
 			}
 
-			if _, err := output.Write(append(bytes, byte('\n'))); err != nil {
+			if _, err := buffer.Write(append(bytes, byte('\n'))); err != nil {
 				kingpin.Fatalf("failed to write to output file: %v", err)
 			}
 		}
 
+		buffer.Flush()
+		outputFile.Close()
+
 	case run.FullCommand():
-		var items chan pgreplay.Item
-
-		if *runJSONFile != "" {
-			items = parseJSONlog(openLogfile(*runJSONFile))
-		} else if *runErrlogFile != "" {
-			items = parseErrlog(openLogfile(*runErrlogFile))
-		} else {
-			kingpin.Fatalf("must provide either an errlog or jsonlog")
-		}
-
 		database, err := pgreplay.NewDatabase(
 			pgx.ConnConfig{
 				Host:     *runHost,
@@ -118,6 +140,15 @@ func main() {
 		if err != nil {
 			logger.Log("event", "postgres.error", "error", err)
 			os.Exit(255)
+		}
+
+		var items chan pgreplay.Item
+
+		switch checkSingleFormat(filterJsonInput, filterErrlogInput) {
+		case filterJsonInput:
+			items = parseLog(*filterJsonInput, pgreplay.ParseJSON)
+		case filterErrlogInput:
+			items = parseLog(*filterErrlogInput, pgreplay.ParseErrlog)
 		}
 
 		stream, err := pgreplay.NewStreamer(start, finish).Stream(items, *runReplayRate)
@@ -154,29 +185,29 @@ func main() {
 	}
 }
 
-func parseJSONlog(file *os.File) chan pgreplay.Item {
-	items := make(chan pgreplay.Item, 100)
-
-	go func() {
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 10*10), 10*1024*1024)
-
-		for scanner.Scan() {
-			line := scanner.Text()
-			item, err := pgreplay.ItemUnmarshalJSON([]byte(line))
-			if err == nil {
-				items <- item
-			}
+func checkSingleFormat(formats ...*string) (result *string) {
+	var supplied = 0
+	for _, format := range formats {
+		if *format != "" {
+			result = format
+			supplied++
 		}
+	}
 
-		close(items)
-	}()
+	if supplied != 1 {
+		kingpin.Fatalf("must provide exactly one input format")
+	}
 
-	return items
+	return result // which becomes the one that isn't empty
 }
 
-func parseErrlog(errlog *os.File) chan pgreplay.Item {
-	items, logerrs, done := pgreplay.Parse(errlog)
+func parseLog(path string, parser pgreplay.ParserFunc) chan pgreplay.Item {
+	file, err := os.Open(path)
+	if err != nil {
+		kingpin.Fatalf("failed to open logfile: %s", err)
+	}
+
+	items, logerrs, done := parser(file)
 
 	go func() {
 		logger.Log("event", "parse.finished", "error", <-done)
@@ -189,16 +220,6 @@ func parseErrlog(errlog *os.File) chan pgreplay.Item {
 	}()
 
 	return items
-}
-
-func openLogfile(path string) *os.File {
-	file, err := os.Open(path)
-	if err != nil {
-		logger.Log("event", "logfile.error", "path", path, "error", err)
-		os.Exit(255)
-	}
-
-	return file
 }
 
 // parseTimestamp parsed a Postgres friendly timestamp

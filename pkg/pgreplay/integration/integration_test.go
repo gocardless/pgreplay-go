@@ -46,7 +46,7 @@ var _ = Describe("pgreplay", func() {
 			errlog, err := os.Open(errlogfixture)
 			Expect(err).NotTo(HaveOccurred())
 
-			items, logerrs, parsingDone := pgreplay.Parse(errlog)
+			items, logerrs, parsingDone := pgreplay.ParseErrlog(errlog)
 			go func() {
 				defer GinkgoRecover()
 				for err := range logerrs {
