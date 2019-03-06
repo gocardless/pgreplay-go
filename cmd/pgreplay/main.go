@@ -155,10 +155,12 @@ func main() {
 }
 
 func parseJSONlog(file *os.File) chan pgreplay.Item {
-	items := make(chan pgreplay.Item)
+	items := make(chan pgreplay.Item, 100)
 
 	go func() {
 		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 10*10), 10*1024*1024)
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			item, err := pgreplay.ItemUnmarshalJSON([]byte(line))

@@ -1,12 +1,15 @@
 package pgreplay
 
 import (
-	"encoding/json"
+	stdjson "encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx"
+	"github.com/json-iterator/go"
 )
+
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type (
 	ReplayType int
@@ -42,8 +45,8 @@ func ItemMarshalJSON(item Item) ([]byte, error) {
 
 func ItemUnmarshalJSON(payload []byte) (Item, error) {
 	envelope := struct {
-		Type string          `json:"type"`
-		Item json.RawMessage `json:"item"`
+		Type string             `json:"type"`
+		Item stdjson.RawMessage `json:"item"`
 	}{}
 
 	if err := json.Unmarshal(payload, &envelope); err != nil {
@@ -54,18 +57,18 @@ func ItemUnmarshalJSON(payload []byte) (Item, error) {
 
 	switch envelope.Type {
 	case ConnectLabel:
-		item = &Connect{}
+		item = Connect{}
 	case StatementLabel:
-		item = &Statement{}
+		item = Statement{}
 	case BoundExecuteLabel:
-		item = &BoundExecute{}
+		item = BoundExecute{}
 	case DisconnectLabel:
-		item = &Disconnect{}
+		item = Disconnect{}
 	default:
 		return nil, fmt.Errorf("did not recognise type: %s", envelope.Type)
 	}
 
-	return item, json.Unmarshal(envelope.Item, item)
+	return item, json.Unmarshal(envelope.Item, &item)
 }
 
 // We support the following types of ReplayItem
