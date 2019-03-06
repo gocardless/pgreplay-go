@@ -6,6 +6,7 @@ import (
 	stdlog "log"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/alecthomas/kingpin"
@@ -19,10 +20,9 @@ import (
 )
 
 var logger kitlog.Logger
-var Version string // assigned during build
 
 var (
-	app = kingpin.New("pgreplay", "Replay Postgres logs against database").Version(Version)
+	app = kingpin.New("pgreplay", "Replay Postgres logs against database").Version(versionStanza())
 
 	// Global flags applying to every command
 	debug          = app.Flag("debug", "Enable debug logging").Default("false").Bool()
@@ -183,6 +183,22 @@ func main() {
 			}
 		}
 	}
+}
+
+// Set by goreleaser
+var (
+	Version       = "dev"
+	Commit        = "none"
+	Date          = "unknown"
+	GoVersion     = runtime.Version()
+	VersionStanza string
+)
+
+func versionStanza() string {
+	return fmt.Sprintf(
+		"pgreplay Version: %v\nGit SHA: %v\nGo Version: %v\nGo OS/Arch: %v/%v\nBuilt at: %v",
+		Version, Commit, GoVersion, runtime.GOOS, runtime.GOARCH, Date,
+	)
 }
 
 func checkSingleFormat(formats ...*string) (result *string) {

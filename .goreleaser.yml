@@ -1,0 +1,44 @@
+# View goreleaser docs for configuration settings
+# https://goreleaser.com
+
+---
+project_name: pgreplay
+
+builds:
+  - binary: pgreplay
+    main: cmd/pgreplay/main.go
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+    ldflags: >
+      -X github.com/gocardless/pgreplay/cmd/main.Version={{.Version}}
+      -X github.com/gocardless/pgreplay/cmd/main.Commit={{.Commit}}
+      -X github.com/gocardless/pgreplay/cmd/main.Date={{.Date}}
+      -a
+      -installsuffix cgo
+    env:
+      - CGO_ENABLED=0
+
+nfpm:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  vendor: GoCardless
+  homepage: https://github.com/gocardless/pgreplay-go
+  maintainer: GoCardless Engineering <engineering@gocardless.com>
+  description: &description PostgreSQL load testing tool
+  formats:
+    - deb
+
+brew:
+  github:
+    owner: gocardless
+    name: homebrew-taps
+  commit_author:
+    name: GoCardless Engineering
+    email: engineering@gocardless.com
+  folder: Formula
+  homepage: https://github.com/gocardless/pgreplay-go
+  description: *description
+  test: system "#{bin}/pgreplay version"
+  install: bin.install "pgreplay"
