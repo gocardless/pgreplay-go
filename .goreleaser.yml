@@ -13,9 +13,9 @@ builds:
     goarch:
       - amd64
     ldflags: >
-      -X github.com/gocardless/pgreplay/cmd/main.Version={{.Version}}
-      -X github.com/gocardless/pgreplay/cmd/main.Commit={{.Commit}}
-      -X github.com/gocardless/pgreplay/cmd/main.Date={{.Date}}
+      -X main.Version={{.Version}}
+      -X main.Commit={{.Commit}}
+      -X main.Date={{.Date}}
       -a
       -installsuffix cgo
     env:

@@ -187,11 +187,10 @@ func main() {
 
 // Set by goreleaser
 var (
-	Version       = "dev"
-	Commit        = "none"
-	Date          = "unknown"
-	GoVersion     = runtime.Version()
-	VersionStanza string
+	Version   = "dev"
+	Commit    = "none"
+	Date      = "unknown"
+	GoVersion = runtime.Version()
 )
 
 func versionStanza() string {
