@@ -33,7 +33,7 @@ var _ = Describe("pgreplay", func() {
 	)
 
 	DescribeTable("Replaying logfiles",
-		func(errlogfixture string, matchLogs []types.GomegaMatcher) {
+		func(parser pgreplay.ParserFunc, fixture string, matchLogs []types.GomegaMatcher) {
 			conn, err = pgx.Connect(cfg)
 			Expect(err).NotTo(HaveOccurred(), "failed to connect to postgres")
 
@@ -43,10 +43,10 @@ var _ = Describe("pgreplay", func() {
 			database, err := pgreplay.NewDatabase(cfg)
 			Expect(err).NotTo(HaveOccurred())
 
-			errlog, err := os.Open(errlogfixture)
+			log, err := os.Open(fixture)
 			Expect(err).NotTo(HaveOccurred())
 
-			items, logerrs, parsingDone := pgreplay.ParseErrlog(errlog)
+			items, logerrs, parsingDone := parser(log)
 			go func() {
 				defer GinkgoRecover()
 				for err := range logerrs {
@@ -76,7 +76,13 @@ var _ = Describe("pgreplay", func() {
 				Expect(logs[idx]).To(matchLog)
 			}
 		},
-		Entry("Single user", "testdata/single_user.log", []types.GomegaMatcher{
+		Entry("Single user (errlog)", pgreplay.ParseErrlog, "testdata/single_user.log", []types.GomegaMatcher{
+			matchLog("alice", "says hello"),
+			matchLog("alice", "sees 1 logs"),
+			matchLog("alice", "sees 2 of alice's logs"),
+			matchLog("alice", "sees 0 of bob's logs"),
+		}),
+		Entry("Single user (json)", pgreplay.ParseJSON, "testdata/single_user.json", []types.GomegaMatcher{
 			matchLog("alice", "says hello"),
 			matchLog("alice", "sees 1 logs"),
 			matchLog("alice", "sees 2 of alice's logs"),
