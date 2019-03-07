@@ -37,15 +37,14 @@ var (
 	filterOutput      = filter.Flag("output", "JSON output file").String()
 	filterNullOutput  = filter.Flag("null-output", "Don't output anything, for testing parsing only").Bool()
 
-	run             = app.Command("run", "Replay from log files against a real database")
-	runHost         = run.Flag("host", "PostgreSQL database host").Required().String()
-	runPort         = run.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
-	runDatname      = run.Flag("database", "PostgreSQL root database").Default("postgres").String()
-	runUser         = run.Flag("user", "PostgreSQL root user").Default("postgres").String()
-	runReplayRate   = run.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Float()
-	runPollInterval = run.Flag("poll-interval", "Interval between polling for finish").Default("5s").Duration()
-	runErrlogInput  = run.Flag("errlog-input", "Path to PostgreSQL errlog").ExistingFile()
-	runJsonInput    = run.Flag("json-input", "Path to preprocessed pgreplay JSON log file").ExistingFile()
+	run            = app.Command("run", "Replay from log files against a real database")
+	runHost        = run.Flag("host", "PostgreSQL database host").Required().String()
+	runPort        = run.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
+	runDatname     = run.Flag("database", "PostgreSQL root database").Default("postgres").String()
+	runUser        = run.Flag("user", "PostgreSQL root user").Default("postgres").String()
+	runReplayRate  = run.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Float()
+	runErrlogInput = run.Flag("errlog-input", "Path to PostgreSQL errlog").ExistingFile()
+	runJsonInput   = run.Flag("json-input", "Path to preprocessed pgreplay JSON log file").ExistingFile()
 )
 
 func main() {
@@ -157,7 +156,6 @@ func main() {
 		}
 
 		errs, consumeDone := database.Consume(stream)
-		poller := time.NewTicker(*runPollInterval)
 
 		var status int
 
@@ -174,12 +172,6 @@ func main() {
 
 				logger.Log("event", "consume.finished", "error", err, "status", status)
 				os.Exit(status)
-
-			// Poll our consumer to determine how much work remains
-			case <-poller.C:
-				if connections, items := database.Pending(); connections > 0 {
-					logger.Log("event", "consume.pending", "connections", connections, "items", items)
-				}
 			}
 		}
 	}
