@@ -144,11 +144,11 @@ func main() {
 
 		var items chan pgreplay.Item
 
-		switch checkSingleFormat(filterJsonInput, filterErrlogInput) {
-		case filterJsonInput:
-			items = parseLog(*filterJsonInput, pgreplay.ParseJSON)
-		case filterErrlogInput:
-			items = parseLog(*filterErrlogInput, pgreplay.ParseErrlog)
+		switch checkSingleFormat(runJsonInput, runErrlogInput) {
+		case runJsonInput:
+			items = parseLog(*runJsonInput, pgreplay.ParseJSON)
+		case runErrlogInput:
+			items = parseLog(*runErrlogInput, pgreplay.ParseErrlog)
 		}
 
 		stream, err := pgreplay.NewStreamer(start, finish).Stream(items, *runReplayRate)
