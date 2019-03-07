@@ -132,23 +132,6 @@ func (d *Database) Connect(item Item) (*Conn, error) {
 	return &Conn{conn, channels.NewInfiniteChannel(), sync.Once{}}, nil
 }
 
-// Pending returns a count of the connections that are still active, and how many items
-// are currently pending against all connections.
-//
-// There is a small risk that calling this function could result in a segfault, as Golang
-// maps aren't race-safe with concurrent writes and reads. The alternative implementation
-// is a lot messier though, so let's do this until there become problems.
-func (d *Database) Pending() (connections, items int) {
-	for _, conn := range d.conns {
-		if conn.IsAlive() {
-			connections++
-			items += conn.Len()
-		}
-	}
-
-	return
-}
-
 // Conn represents a single database connection handling a stream of work Items
 type Conn struct {
 	*pgx.Conn
