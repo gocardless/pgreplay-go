@@ -67,7 +67,7 @@ $ cat postgresql.log \
 | grep -v "LOG:  statement: SAVEPOINT" \
 | grep -v "LOG:  statement: RELEASE SAVEPOINT" \
 | grep -v "LOG:  statement: SET LOCAL" \
-| sed 's/pg_try_advisory_lock/pg_try_advisory_lock_shared/g' \
+| sed 's/pg_try_advisory_lock/bool/g' \
 | sed 's/pg_advisory_unlock/pg_advisory_unlock_shared/g' \
 > postgresql-filtered.log
 ```
