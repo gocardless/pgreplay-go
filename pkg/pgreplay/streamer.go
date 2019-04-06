@@ -57,19 +57,21 @@ func (s Streamer) Stream(items chan Item, rate float64) (chan Item, error) {
 	out := make(chan Item)
 
 	go func() {
-		var lastSeen time.Time
+		var first, start time.Time
 		var seenItem bool
 
 		for item := range s.Filter(items) {
 			if !seenItem {
-				lastSeen = item.GetTimestamp()
+				first = item.GetTimestamp()
+				start = time.Now()
 				seenItem = true
 			}
 
-			if diff := item.GetTimestamp().Sub(lastSeen); diff > 0 {
+			elapsedSinceStart := time.Duration(rate) * time.Now().Sub(start)
+			elapsedSinceFirst := item.GetTimestamp().Sub(first)
+
+			if diff := elapsedSinceFirst - elapsedSinceStart; diff > 0 {
 				time.Sleep(time.Duration(float64(diff) / rate))
-				lastSeen = item.GetTimestamp()
-				ItemsLastStreamedTimestamp.Set(float64(lastSeen.Unix()))
 			}
 
 			out <- item
