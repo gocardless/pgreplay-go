@@ -10,27 +10,23 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	LogLinesParsedTotal = prometheus.NewCounter(
+	logLinesParsedTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "pgreplay_log_lines_parsed_total",
 			Help: "Number of log lines parsed since boot",
 		},
 	)
-	LogLinesErrorTotal = prometheus.NewCounter(
+	logLinesErrorTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "pgreplay_log_lines_error_total",
 			Help: "Number of log lines that failed to parse",
 		},
 	)
 )
-
-func init() {
-	prometheus.MustRegister(LogLinesParsedTotal)
-	prometheus.MustRegister(LogLinesErrorTotal)
-}
 
 // ItemBufferSize defines the size of the channel buffer when parsing Items.
 // Allowing the channel to buffer makes a significant throughput improvement to the
@@ -92,12 +88,12 @@ func ParseErrlog(errlog io.Reader) (items chan Item, errs chan error, done chan 
 		for scanner.Scan() {
 			item, err := ParseItem(scanner.Text(), unbounds, parsebuffer)
 			if err != nil {
-				LogLinesErrorTotal.Inc()
+				logLinesErrorTotal.Inc()
 				errs <- err
 			}
 
 			if item != nil {
-				LogLinesParsedTotal.Inc()
+				logLinesParsedTotal.Inc()
 				items <- item
 			}
 		}

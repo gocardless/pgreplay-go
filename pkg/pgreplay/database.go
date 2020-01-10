@@ -7,41 +7,35 @@ import (
 	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/pgtype"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	ConnectionsActive = prometheus.NewGauge(
+	connectionsActive = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "pgreplay_connections_active",
 			Help: "Number of connections currently open against Postgres",
 		},
 	)
-	ConnectionsEstablishedTotal = prometheus.NewCounter(
+	connectionsEstablishedTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "pgreplay_connections_established_total",
 			Help: "Number of connections established against Postgres",
 		},
 	)
-	ItemsProcessedTotal = prometheus.NewCounter(
+	itemsProcessedTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "pgreplay_items_processed_total",
 			Help: "Total count of replay items that have been sent to the database",
 		},
 	)
-	ItemsMostRecentTimestamp = prometheus.NewGauge(
+	itemsMostRecentTimestamp = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "pgreplay_items_most_recent_timestamp",
 			Help: "Most recent timestamp of processed items",
 		},
 	)
 )
-
-func init() {
-	prometheus.MustRegister(ConnectionsActive)
-	prometheus.MustRegister(ConnectionsEstablishedTotal)
-	prometheus.MustRegister(ItemsProcessedTotal)
-	prometheus.MustRegister(ItemsMostRecentTimestamp)
-}
 
 func NewDatabase(cfg pgx.ConnConfig) (*Database, error) {
 	conn, err := pgx.Connect(cfg)
@@ -84,12 +78,12 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 				d.conns[item.GetSessionID()] = conn
 
 				wg.Add(1)
-				ConnectionsEstablishedTotal.Inc()
-				ConnectionsActive.Inc()
+				connectionsEstablishedTotal.Inc()
+				connectionsActive.Inc()
 
 				go func(conn *Conn) {
 					defer wg.Done()
-					defer ConnectionsActive.Dec()
+					defer connectionsActive.Dec()
 
 					if err := conn.Start(); err != nil {
 						errs <- err
@@ -155,8 +149,8 @@ func (c *Conn) Start() error {
 			continue
 		}
 
-		ItemsProcessedTotal.Inc()
-		ItemsMostRecentTimestamp.Set(float64(item.GetTimestamp().Unix()))
+		itemsProcessedTotal.Inc()
+		itemsMostRecentTimestamp.Set(float64(item.GetTimestamp().Unix()))
 
 		err := item.Handle(c.Conn)
 
