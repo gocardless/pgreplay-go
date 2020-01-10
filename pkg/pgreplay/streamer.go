@@ -5,34 +5,29 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
 var (
-	ItemsFilteredTotal = prometheus.NewCounter(
+	itemsFilteredTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "pgreplay_items_filtered_total",
 			Help: "Number of items filtered by start/finish range",
 		},
 	)
-	ItemsFilterProgressFraction = prometheus.NewGauge(
+	itemsFilterProgressFraction = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "pgreplay_items_filter_progress_fraction",
 			Help: "Fractional progress through filter range, assuming linear distribution",
 		},
 	)
-	ItemsLastStreamedTimestamp = prometheus.NewGauge(
+	itemsLastStreamedTimestamp = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "pgreplay_items_last_streamed_timestamp",
 			Help: "Timestamp of last streamed item",
 		},
 	)
 )
-
-func init() {
-	prometheus.MustRegister(ItemsFilteredTotal)
-	prometheus.MustRegister(ItemsFilterProgressFraction)
-	prometheus.MustRegister(ItemsLastStreamedTimestamp)
-}
 
 // StreamFilterBufferSize is the size of the channel buffer when filtering items for a
 // time range
@@ -100,7 +95,7 @@ func (s Streamer) Filter(items chan Item) chan Item {
 				break
 			}
 
-			ItemsFilteredTotal.Inc()
+			itemsFilteredTotal.Inc()
 		}
 	}
 
@@ -118,7 +113,7 @@ func (s Streamer) Filter(items chan Item) chan Item {
 				}
 
 				if s.start != nil {
-					ItemsFilterProgressFraction.Set(
+					itemsFilterProgressFraction.Set(
 						float64(item.GetTimestamp().Sub(*s.start)) / float64((*s.finish).Sub(*s.start)),
 					)
 				}
