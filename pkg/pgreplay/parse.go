@@ -28,19 +28,21 @@ var (
 	)
 )
 
-// ItemBufferSize defines the size of the channel buffer when parsing Items.
-// Allowing the channel to buffer makes a significant throughput improvement to the
-// parsing.
-var ItemBufferSize = 100
+const (
+	// ItemBufferSize defines the size of the channel buffer when parsing Items.
+	// Allowing the channel to buffer makes a significant throughput improvement to the
+	// parsing.
+	ItemBufferSize = 100
 
-// MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
-// line. It is possible to pass really large arrays of parameters to Postgres queries
-// which is why this has to be so large.
-var MaxLogLineSize = 10 * 1024 * 1024
-var InitialScannerBufferSize = 10 * 10
+	// MaxLogLineSize denotes the maximum size, in bytes, that we can scan in a single log
+	// line. It is possible to pass really large arrays of parameters to Postgres queries
+	// which is why this has to be so large.
+	MaxLogLineSize           = 10 * 1024 * 1024
+	InitialScannerBufferSize = 10 * 10
 
-// PostgresTimestampFormat is the Go template format that we expect to find our errlog
-var PostgresTimestampFormat = "2006-01-02 15:04:05.000 MST"
+	// PostgresTimestampFormat is the Go template format that we expect to find our errlog
+	PostgresTimestampFormat = "2006-01-02 15:04:05.000 MST"
+)
 
 // ParserFunc is the standard interface to provide items from a parsing source
 type ParserFunc func(io.Reader) (items chan Item, errs chan error, done chan error)
