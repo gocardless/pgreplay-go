@@ -28,10 +28,8 @@ require (
 	github.com/prometheus/common v0.2.0
 	github.com/prometheus/procfs v0.0.0-20190219184716-e4d4a2206da0
 	golang.org/x/net v0.0.0-20190213061140-3a22650c66bd
-	golang.org/x/sys v0.0.0-20190222171317-cd391775e71e
+	golang.org/x/sys v0.0.0-20200107162124-548cf772de50
 	golang.org/x/text v0.3.0
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7
 	gopkg.in/yaml.v2 v2.2.2
 )
-
-replace gopkg.in/fsnotify.v1 v1.4.7 => github.com/fsnotify/fsnotify v1.4.7
