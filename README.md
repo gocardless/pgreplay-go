@@ -1,5 +1,7 @@
 # pgreplay-go [![CircleCI](https://circleci.com/gh/gocardless/pgreplay-go.svg?style=svg&circle-token=d020aaec823388b8e4debe552960450402964ae7)](https://circleci.com/gh/gocardless/pgreplay-go)
 
+> See a discussion of building this tool at https://blog.lawrencejones.dev/building-a-postgresql-load-tester/
+
 This tool is a different take on the existing [pgreplay](
 https://github.com/laurenz/pgreplay) project. Where pgreplay will playback
 Postgres log files while respecting relative chronological order, pgreplay-go
