@@ -172,6 +172,15 @@ Hooking these metrics into a Grafana dashboard can give the following output:
 
 ![pgreplay-go Grafana dashboard](res/grafana.jpg)
 
+We'd suggest that you integrate these panels into your own dashboard; for
+example by showing them alongside key PostgreSQL metrics such as transaction
+commits, active backends and buffer cache hit ratio, as well as node-level
+metrics to show CPU and IO saturation.
+
+A sample dashboard with the `pgreplay-go`-specific panels has been provided that
+may help you get started. Import it into your Grafana dashboard by downloading
+the [dashboard JSON file](res/grafana-dashboard-pgreplay-go.json).
+
 ## Types of Log
 
 ### Simple
