@@ -110,9 +110,6 @@ func ParseCsvLog(csvlog io.Reader) (items chan Item, errs chan error, done chan 
 
 		close(items)
 		close(errs)
-
-		// TODO(benji): what do I do with this?
-		// done <- reader.Error()
 		close(done)
 	}()
 
