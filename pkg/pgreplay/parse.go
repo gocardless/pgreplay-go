@@ -3,6 +3,7 @@ package pgreplay
 import (
 	"bufio"
 	"bytes"
+	"encoding/csv"
 	"fmt"
 	"io"
 	"regexp"
@@ -76,6 +77,48 @@ func ParseJSON(jsonlog io.Reader) (items chan Item, errs chan error, done chan e
 	return
 }
 
+func ParseCsvLog(csvlog io.Reader) (items chan Item, errs chan error, done chan error) {
+	reader := csv.NewReader(csvlog)
+	items, errs, done = make(chan Item, ItemBufferSize), make(chan error), make(chan error)
+
+	go func() {
+		for {
+			logline, err := reader.Read()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				logLinesErrorTotal.Inc()
+				errs <- err
+			}
+			item, err := ParseCsvItem(logline)
+			if err != nil {
+				logLinesErrorTotal.Inc()
+				errs <- err
+			}
+
+			if item != nil {
+				logLinesParsedTotal.Inc()
+				items <- item
+			}
+		}
+
+		// Flush the item channel by pushing nil values up-to capacity
+		for i := 0; i < ItemBufferSize; i++ {
+			items <- nil
+		}
+
+		close(items)
+		close(errs)
+
+		// TODO(benji): what do I do with this?
+		// done <- reader.Error()
+		close(done)
+	}()
+
+	return
+}
+
 // ParseErrlog generates a stream of Items from the given PostgreSQL errlog. Log line
 // parsing errors are returned down the errs channel, and we signal having finished our
 // parsing by sending a value down the done channel.
@@ -127,6 +170,59 @@ const (
 	LogDetail                     = "DETAIL:  "
 	LogError                      = "ERROR:  "
 )
+
+const (
+	CsvLogDuration             = "duration: "
+	CsvLogStatement            = "statement:"
+	CsvLogConnectionReceived   = "connection received:"
+	CsvLogConnectionAuthorized = "connection authorized:"
+)
+
+// ParseCsvItem constructs a Item from a CSV log line. The format we accept is
+// log_line_prefix='%t:%r:%u@%d:[%p]:' and log_destination='csvlog'.
+func ParseCsvItem(logline []string) (Item, error) {
+	if len(logline) < 12 {
+		return nil, fmt.Errorf("failed to parse log line: '%s'", logline)
+	}
+
+	ts, err := time.Parse(PostgresTimestampFormat, logline[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse log timestamp: '%s': %v", logline[0], err)
+	}
+
+	// 2023-06-09 01:50:01.825 UTC,"postgres","postgres",,,64828549.7698,,,,,,,,<msg>
+	user, database, session, msg := logline[1], logline[2], logline[5], logline[13]
+
+	details := Details{
+		Timestamp: ts,
+		SessionID: SessionID(session),
+		User:      user,
+		Database:  database,
+	}
+
+	// statement:\nselect pg_reload_conf();
+	if strings.Contains(msg, CsvLogStatement) {
+		return Statement{details, msg[len(CsvLogStatement):]}, nil
+	}
+
+	// duration: 0.000 ms
+	if strings.Contains(msg, CsvLogDuration) {
+		return nil, nil
+	}
+
+	// connection received: host=192.168.99.1 port=52188
+	// We use connection authorized for replay, and can safely ignore connection received
+	if strings.HasPrefix(msg, CsvLogConnectionReceived) {
+		return nil, nil
+	}
+
+	// connection authorized: user=postgres database=postgres
+	if strings.HasPrefix(msg, CsvLogConnectionAuthorized) {
+		return Connect{details}, nil
+	}
+
+	return nil, fmt.Errorf("no parser matches line: %s", msg)
+}
 
 // ParseItem constructs a Item from Postgres errlogs. The format we accept is
 // log_line_prefix='%m|%u|%d|%c|', so we can split by | to discover each component.
@@ -265,7 +361,7 @@ func ParseItem(logline string, unbounds map[SessionID]*Execute, buffer []byte) (
 // ParseBindParameters constructs an interface slice from the suffix of a DETAIL parameter
 // Postgres errlog. An example input to this function would be:
 //
-// $1 = '', $2 = '30', $3 = '2018-05-03 10:26:27.905086+00'
+// $1 = ”, $2 = '30', $3 = '2018-05-03 10:26:27.905086+00'
 //
 // ...and this would be parsed into []interface{"", "30", "2018-05-03 10:26:27.905086+00"}
 func ParseBindParameters(input string, buffer []byte) ([]interface{}, error) {
@@ -345,8 +441,9 @@ func findClosingTag(input, marker, escapeSequence string) (idx int) {
 // from Postgres logs. Postgres errlog format looks like this:
 //
 // 2018-05-03|gc|LOG:  duration: 0.096 ms  parse <unnamed>:
-//					DELETE FROM que_jobs
-// 					WHERE queue    = $1::text
+//
+//	DELETE FROM que_jobs
+//	WHERE queue    = $1::text
 //
 // ...where a log line can spill over multiple lines, with trailing lines marked with a
 // preceding \t.

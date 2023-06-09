@@ -6,7 +6,7 @@ import (
 
 	kitlog "github.com/go-kit/kit/log"
 	"github.com/gocardless/pgreplay-go/pkg/pgreplay"
-	"github.com/jackc/pgx"
+	"github.com/jackc/pgx/v5"
 	"github.com/onsi/gomega/types"
 
 	. "github.com/onsi/ginkgo"
@@ -23,18 +23,19 @@ var _ = Describe("pgreplay", func() {
 
 		// We expect a Postgres database to be running for integration tests, and that
 		// environment variables are appropriately configured to permit access.
-		cfg = pgx.ConnConfig{
-			Database: tryEnviron("PGDATABASE", "pgreplay_test"),
-			Host:     tryEnviron("PGHOST", "127.0.0.1"),
-			User:     tryEnviron("PGUSER", "pgreplay_test_users"),
-			Password: tryEnviron("PGPASSWORD", ""),
-			Port:     uint16(mustAtoi(tryEnviron("PGPORT", "5432"))),
-		}
+		connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
+			tryEnviron("PGUSER", "pgreplay_test_users"),
+			tryEnviron("PGPASSWORD", ""),
+			tryEnviron("PGHOST", "127.0.0.1"),
+			uint16(mustAtoi(tryEnviron("PGPORT", "5432"))),
+			tryEnviron("PGDATABASE", "pgreplay_test")
+		)
 	)
 
 	DescribeTable("Replaying logfiles",
 		func(parser pgreplay.ParserFunc, fixture string, matchLogs []types.GomegaMatcher) {
-			conn, err = pgx.Connect(cfg)
+			ctx := context.Background()
+			conn, err = pgx.Connect(ctx, connStr)
 			Expect(err).NotTo(HaveOccurred(), "failed to connect to postgres")
 
 			_, err = conn.Exec(`TRUNCATE logs;`)
