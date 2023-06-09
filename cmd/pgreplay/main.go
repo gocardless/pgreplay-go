@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
 	stdlog "log"
 	"net/http"
 	"os"
@@ -144,10 +143,10 @@ func main() {
 			*runPassword,
 		))
 		if err != nil {
-			log.Fatalf("Unable to parse config: %v", err)
+			kingpin.Fatalf("failed to parse postgres connection config: %v", err)
 		}
-		database, err := pgreplay.NewDatabase(ctx, config)
 
+		database, err := pgreplay.NewDatabase(ctx, config)
 		if err != nil {
 			logger.Log("event", "postgres.error", "error", err)
 			os.Exit(255)
