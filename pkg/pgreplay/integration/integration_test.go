@@ -1,6 +1,8 @@
 package integration
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strconv"
 
@@ -19,29 +21,32 @@ var _ = Describe("pgreplay", func() {
 	var (
 		conn   *pgx.Conn
 		logger = kitlog.NewLogfmtLogger(GinkgoWriter)
-		err    error
-
-		// We expect a Postgres database to be running for integration tests, and that
-		// environment variables are appropriately configured to permit access.
-		connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s",
-			tryEnviron("PGUSER", "pgreplay_test_users"),
-			tryEnviron("PGPASSWORD", ""),
-			tryEnviron("PGHOST", "127.0.0.1"),
-			uint16(mustAtoi(tryEnviron("PGPORT", "5432"))),
-			tryEnviron("PGDATABASE", "pgreplay_test")
-		)
 	)
 
 	DescribeTable("Replaying logfiles",
 		func(parser pgreplay.ParserFunc, fixture string, matchLogs []types.GomegaMatcher) {
+			// We expect a Postgres database to be running for integration tests, and that
+			// environment variables are appropriately configured to permit access.
 			ctx := context.Background()
-			conn, err = pgx.Connect(ctx, connStr)
+			cfg, err := pgx.ParseConfig(fmt.Sprintf(
+				"host=%s port=%d dbname=%s user=%s password=%s",
+				tryEnviron("PGHOST", "127.0.0.1"),
+				uint16(mustAtoi(tryEnviron("PGPORT", "5432"))),
+				tryEnviron("PGDATABASE", "pgreplay_test"),
+				tryEnviron("PGUSER", "pgreplay_test_users"),
+				tryEnviron("PGPASSWORD", ""),
+			))
+			if err != nil {
+				Fail(fmt.Sprintf("failed to parse postgres connection config: %v", err))
+			}
+
+			conn, err = pgx.ConnectConfig(ctx, cfg)
 			Expect(err).NotTo(HaveOccurred(), "failed to connect to postgres")
 
-			_, err = conn.Exec(`TRUNCATE logs;`)
+			_, err = conn.Exec(ctx, `TRUNCATE logs;`)
 			Expect(err).NotTo(HaveOccurred(), "failed to truncate logs table")
 
-			database, err := pgreplay.NewDatabase(cfg)
+			database, err := pgreplay.NewDatabase(ctx, cfg)
 			Expect(err).NotTo(HaveOccurred())
 
 			log, err := os.Open(fixture)
@@ -58,7 +63,7 @@ var _ = Describe("pgreplay", func() {
 			stream, err := pgreplay.NewStreamer(nil, nil).Stream(items, 1.0)
 			Expect(err).NotTo(HaveOccurred())
 
-			errs, consumeDone := database.Consume(stream)
+			errs, consumeDone := database.Consume(ctx, stream)
 
 			// Expect that we finish with no errors
 			Eventually(consumeDone).Should(BeClosed())
@@ -110,7 +115,8 @@ func mustAtoi(numstr string) int {
 }
 
 func getLogs(conn *pgx.Conn) ([]interface{}, error) {
-	rows, err := conn.Query(`SELECT id::text, author, message FROM logs ORDER BY id;`)
+	ctx := context.Background()
+	rows, err := conn.Query(ctx, `SELECT id::text, author, message FROM logs ORDER BY id;`)
 	if err != nil {
 		return nil, err
 	}
