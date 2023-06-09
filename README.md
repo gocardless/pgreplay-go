@@ -35,8 +35,21 @@ ALTER SYSTEM SET log_line_prefix='%m|%u|%d|%c|';
 ALTER SYSTEM SET log_min_error_statement='log';
 ALTER SYSTEM SET log_min_messages='error';
 ALTER SYSTEM SET log_statement='all';
-ALTER SYSTEM SET log_min_duration_statement=0; 
+ALTER SYSTEM SET log_min_duration_statement=0;
 SELECT pg_reload_conf();
+```
+
+Or, if you need to capture logs for an RDS instance, you can use these parameters in your
+instances parameter group:
+
+```
+log_destination = csvlog
+log_connections = 1
+log_disconnections = 1
+log_min_error_statement = log
+log_min_messages = error
+log_statement = all
+log_min_duration_statement = 0
 ```
 
 ### 2. Take snapshot
@@ -91,7 +104,7 @@ the production cluster.
 
 Now create a copy of the original production cluster using the snapshot from
 (2). The aim is to have a cluster that exactly replicates production, providing
-a reliable control for our experiment. 
+a reliable control for our experiment.
 
 The goal of this run will be to output Postgres logs that can be parsed by
 [pgBadger](https://github.com/darold/pgbadger) to provide an analysis of the
