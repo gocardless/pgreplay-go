@@ -130,7 +130,8 @@ like this:
 $ pgreplay-go/bin/pgreplay run \
     --debug \
     --errlog-input ./postgresql-filtered.log \
-    --host 0.0.0.0 \
+    --host 127.0.0.1 \
+    --metrics-address 0.0.0.0 \
     --port 5433 \
     --user postgres \
     --password postgres \
