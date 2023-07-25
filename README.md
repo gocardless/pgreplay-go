@@ -118,12 +118,15 @@ from an alternative location if this is a concern. An example run would look
 like this:
 
 ```
-$ pgreplay \
-    --errlog-file /data/postgresql-filtered.log \
-    --host 127.0.0.1 \
-    --metrics-address 0.0.0.0 \
-    --start <benchmark-start-time> \
-    --finish <benchmark-finish-time>
+$ pgreplay-go/bin/pgreplay run \
+    --debug \
+    --errlog-input ./postgresql-filtered.log \
+    --host 0.0.0.0 \
+    --port 5433 \
+    --user postgres \
+    --password postgres \
+    --start 2023-07-25\ 03:10:05.000\ UTC \
+    --finish 2024-01-01\ 15:04:05.000\ UTZ
 ```
 
 If you run Prometheus then pgreplay-go exposes a metrics that can be used to
