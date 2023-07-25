@@ -19,6 +19,15 @@ You have an existing cluster and want to trial new hardware/validate
 configuration changes/move infrastructure providers. Your production services
 depend on ensuring the new change is safe and doesn't degrade performance.
 
+
+## Building this tool
+Ensure you have go installed (`brew install go`).
+
+```bash
+$ make all
+```
+This will put `pgreplay` in `/bin`, if you need to rebuild delete the contents of `/bin` & remake.
+
 ### 1. Configure production logging
 
 First capture the logs from your running Postgres instance. You may need to add
