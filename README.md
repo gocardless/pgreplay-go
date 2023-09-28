@@ -39,6 +39,19 @@ ALTER SYSTEM SET log_min_duration_statement=0;
 SELECT pg_reload_conf();
 ```
 
+Or, if you need to capture logs for an RDS instance, you can use these parameters in your
+instances parameter group:
+
+```
+log_destination = csvlog
+log_connections = 1
+log_disconnections = 1
+log_min_error_statement = log
+log_min_messages = error
+log_statement = all
+log_min_duration_statement = 0
+```
+
 ### 2. Take snapshot
 
 Now we're emitting logs we need to snapshot the database so that we can later
