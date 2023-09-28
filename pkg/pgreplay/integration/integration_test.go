@@ -1,12 +1,13 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"strconv"
 
-	kitlog "github.com/go-kit/kit/log"
+	kitlog "github.com/go-kit/log"
 	"github.com/gocardless/pgreplay-go/pkg/pgreplay"
-	"github.com/jackc/pgx"
+	pgx "github.com/jackc/pgx/v5"
 	"github.com/onsi/gomega/types"
 
 	. "github.com/onsi/ginkgo"
@@ -23,24 +24,25 @@ var _ = Describe("pgreplay", func() {
 
 		// We expect a Postgres database to be running for integration tests, and that
 		// environment variables are appropriately configured to permit access.
-		cfg = pgx.ConnConfig{
+		cfg = pgreplay.DatabaseConnConfig{
 			Database: tryEnviron("PGDATABASE", "pgreplay_test"),
-			Host:     tryEnviron("PGHOST", "127.0.0.1"),
+			Host:     tryEnviron("PGHOST", "localhost"),
 			User:     tryEnviron("PGUSER", "pgreplay_test_users"),
-			Password: tryEnviron("PGPASSWORD", ""),
+			Password: tryEnviron("PGPASSWORD", "password"),
 			Port:     uint16(mustAtoi(tryEnviron("PGPORT", "5432"))),
 		}
+		ctx = context.Background()
 	)
 
 	DescribeTable("Replaying logfiles",
 		func(parser pgreplay.ParserFunc, fixture string, matchLogs []types.GomegaMatcher) {
-			conn, err = pgx.Connect(cfg)
+			conn, err = pgx.Connect(ctx, pgreplay.ParseConnData(cfg))
 			Expect(err).NotTo(HaveOccurred(), "failed to connect to postgres")
 
-			_, err = conn.Exec(`TRUNCATE logs;`)
+			_, err = conn.Exec(ctx, `TRUNCATE logs;`)
 			Expect(err).NotTo(HaveOccurred(), "failed to truncate logs table")
 
-			database, err := pgreplay.NewDatabase(cfg)
+			database, err := pgreplay.NewDatabase(ctx, cfg)
 			Expect(err).NotTo(HaveOccurred())
 
 			log, err := os.Open(fixture)
@@ -54,10 +56,10 @@ var _ = Describe("pgreplay", func() {
 				}
 			}()
 
-			stream, err := pgreplay.NewStreamer(nil, nil).Stream(items, 1.0)
+			stream, err := pgreplay.NewStreamer(nil, nil, logger).Stream(items, 1.0)
 			Expect(err).NotTo(HaveOccurred())
 
-			errs, consumeDone := database.Consume(stream)
+			errs, consumeDone := database.Consume(ctx, stream)
 
 			// Expect that we finish with no errors
 			Eventually(consumeDone).Should(BeClosed())
@@ -67,7 +69,7 @@ var _ = Describe("pgreplay", func() {
 			Eventually(parsingDone).Should(BeClosed())
 
 			// Extract the logs that our test will have placed in the database
-			logs, err := getLogs(conn)
+			logs, err := getLogs(ctx, conn)
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(logs)).To(Equal(len(matchLogs)))
@@ -108,8 +110,10 @@ func mustAtoi(numstr string) int {
 	return num
 }
 
-func getLogs(conn *pgx.Conn) ([]interface{}, error) {
-	rows, err := conn.Query(`SELECT id::text, author, message FROM logs ORDER BY id;`)
+func getLogs(ctx context.Context, conn *pgx.Conn) ([]interface{}, error) {
+	rows, err := conn.Query(
+		ctx, `SELECT id::text, author, message FROM logs ORDER BY id;`,
+	)
 	if err != nil {
 		return nil, err
 	}

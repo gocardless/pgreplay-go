@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	stdlog "log"
 	"net/http"
@@ -9,14 +10,12 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/alecthomas/kingpin"
-	kitlog "github.com/go-kit/kit/log"
-	level "github.com/go-kit/kit/log/level"
+	kingpin "github.com/alecthomas/kingpin/v2"
+	kitlog "github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/gocardless/pgreplay-go/pkg/pgreplay"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-
-	"github.com/jackc/pgx"
 )
 
 var logger kitlog.Logger
@@ -28,12 +27,13 @@ var (
 	debug          = app.Flag("debug", "Enable debug logging").Default("false").Bool()
 	startFlag      = app.Flag("start", "Play logs from this time onward ("+pgreplay.PostgresTimestampFormat+")").String()
 	finishFlag     = app.Flag("finish", "Stop playing logs at this time ("+pgreplay.PostgresTimestampFormat+")").String()
-	metricsAddress = app.Flag("metrics-address", "Address to bind HTTP metrics listener").Default("127.0.0.1").String()
+	metricsAddress = app.Flag("metrics-address", "Address to bind HTTP metrics listener").Default("0.0.0.0").String()
 	metricsPort    = app.Flag("metrics-port", "Port to bind HTTP metrics listener").Default("9445").Uint16()
 
 	filter            = app.Command("filter", "Process an errlog file into a pgreplay preprocessed JSON log")
 	filterJsonInput   = filter.Flag("json-input", "JSON input file").ExistingFile()
 	filterErrlogInput = filter.Flag("errlog-input", "Postgres errlog input file").ExistingFile()
+	filterCsvLogInput = filter.Flag("csvlog-input", "Postgres CSV log input file").ExistingFile()
 	filterOutput      = filter.Flag("output", "JSON output file").String()
 	filterNullOutput  = filter.Flag("null-output", "Don't output anything, for testing parsing only").Bool()
 
@@ -42,8 +42,10 @@ var (
 	runPort        = run.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
 	runDatname     = run.Flag("database", "PostgreSQL root database").Default("postgres").String()
 	runUser        = run.Flag("user", "PostgreSQL root user").Default("postgres").String()
+	runPassword    = run.Flag("password", "PostgreSQl password user (the default value is obtained from the DB_PASSWORD env var)").Default(os.Getenv("DB_PASSWORD")).String()
 	runReplayRate  = run.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Float()
 	runErrlogInput = run.Flag("errlog-input", "Path to PostgreSQL errlog").ExistingFile()
+	runCsvLogInput = run.Flag("csvlog-input", "Path to PostgreSQL CSV log").ExistingFile()
 	runJsonInput   = run.Flag("json-input", "Path to preprocessed pgreplay JSON log file").ExistingFile()
 )
 
@@ -81,19 +83,24 @@ func main() {
 	case filter.FullCommand():
 		var items chan pgreplay.Item
 
-		switch checkSingleFormat(filterJsonInput, filterErrlogInput) {
+		switch checkSingleFormat(filterJsonInput, filterErrlogInput, filterCsvLogInput) {
 		case filterJsonInput:
 			items = parseLog(*filterJsonInput, pgreplay.ParseJSON)
 		case filterErrlogInput:
 			items = parseLog(*filterErrlogInput, pgreplay.ParseErrlog)
+		case filterCsvLogInput:
+			items = parseLog(*filterCsvLogInput, pgreplay.ParseCsvLog)
+		default:
+			logger.Log("event", "postgres.error", "error", "you must provide an input")
+			os.Exit(255)
 		}
 
 		// Apply the start and end filters
-		items = pgreplay.NewStreamer(start, finish).Filter(items)
+		items = pgreplay.NewStreamer(start, finish, logger).Filter(items)
 
 		if *filterNullOutput {
 			logger.Log("event", "filter.null_output", "msg", "Null output enabled, logs won't be serialized")
-			for _ = range items {
+			for range items {
 				// no-op
 			}
 
@@ -127,12 +134,15 @@ func main() {
 		outputFile.Close()
 
 	case run.FullCommand():
+		ctx := context.Background()
 		database, err := pgreplay.NewDatabase(
-			pgx.ConnConfig{
+			ctx,
+			pgreplay.DatabaseConnConfig{
 				Host:     *runHost,
 				Port:     *runPort,
 				Database: *runDatname,
 				User:     *runUser,
+				Password: *runPassword,
 			},
 		)
 
@@ -143,19 +153,25 @@ func main() {
 
 		var items chan pgreplay.Item
 
-		switch checkSingleFormat(runJsonInput, runErrlogInput) {
+		switch checkSingleFormat(runJsonInput, runErrlogInput, runCsvLogInput) {
 		case runJsonInput:
 			items = parseLog(*runJsonInput, pgreplay.ParseJSON)
 		case runErrlogInput:
 			items = parseLog(*runErrlogInput, pgreplay.ParseErrlog)
+		case runCsvLogInput:
+			items = parseLog(*runCsvLogInput, pgreplay.ParseCsvLog)
+		default:
+			logger.Log("event", "postgres.error", "error", "you must provide an input")
+			os.Exit(255)
 		}
 
-		stream, err := pgreplay.NewStreamer(start, finish).Stream(items, *runReplayRate)
+		replay_started := time.Now()
+		stream, err := pgreplay.NewStreamer(start, finish, logger).Stream(items, *runReplayRate)
 		if err != nil {
 			kingpin.Fatalf("failed to start streamer: %s", err)
 		}
 
-		errs, consumeDone := database.Consume(stream)
+		errs, done := database.Consume(ctx, stream)
 
 		var status int
 
@@ -165,12 +181,13 @@ func main() {
 				if err != nil {
 					logger.Log("event", "consume.error", "error", err)
 				}
-			case err := <-consumeDone:
+			case err := <-done:
 				if err != nil {
 					status = 255
 				}
 
 				logger.Log("event", "consume.finished", "error", err, "status", status)
+				logger.Log("event", "time.elapsed", "total", buildTimeElapsed(replay_started))
 				os.Exit(status)
 			}
 		}
@@ -239,4 +256,27 @@ func parseTimestamp(in string) (*time.Time, error) {
 	return &t, errors.Wrapf(
 		err, "must be a valid timestamp (%s)", pgreplay.PostgresTimestampFormat,
 	)
+}
+
+func buildTimeElapsed(start time.Time) string {
+	const day = time.Minute * 60 * 24
+
+	duration := time.Since(start)
+
+	if duration < 0 {
+		duration *= -1
+	}
+
+	if duration < day {
+		return duration.String()
+	}
+
+	n := duration / day
+	duration -= n * day
+
+	if duration == 0 {
+		return fmt.Sprintf("%dd", n)
+	}
+
+	return fmt.Sprintf("%dd%s", n, duration)
 }

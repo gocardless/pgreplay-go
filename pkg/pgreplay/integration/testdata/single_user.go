@@ -1,14 +1,19 @@
 package main
 
 import (
-	"github.com/jackc/pgx"
+	"context"
+	"fmt"
+
+	pgx "github.com/jackc/pgx/v4"
 )
 
-func connect(user string) *pgx.Conn {
-	conn, _ := pgx.Connect(
-		pgx.ConnConfig{
-			Host: "127.0.0.1", Port: 5432, Database: "pgreplay_test", User: user,
-		},
+func connect(ctx context.Context, user string) *pgx.Conn {
+	connConfig, _ := pgx.ParseConfig(
+		fmt.Sprintf("postgres://%s@%s:%d/%s", user, "127.0.0.1", 5432, "pgreplay_test"),
+	)
+
+	conn, _ := pgx.ConnectConfig(
+		ctx, connConfig,
 	)
 
 	return conn
@@ -19,16 +24,17 @@ var someoneSeesUser = `insert into logs (author, message) (
 );`
 
 func main() {
-	alice := connect("alice")
-	alice.Exec(`insert into logs (author, message) values ('alice', 'says hello');`)
-	alice.Exec(`insert into logs (author, message) (
-  select 'alice', format('sees %s logs', count(*)) from logs
-);`)
+	ctx := context.Background()
+	alice := connect(ctx, "alice")
+	alice.Exec(ctx, `insert into logs (author, message) values ('alice', 'says hello');`)
+	alice.Exec(ctx, `insert into logs (author, message) (
+  		select 'alice', format('sees %s logs', count(*)) from logs
+	);`)
 
 	// Named prepared statement
-	alice.Prepare("someone_sees_user", someoneSeesUser)
-	alice.Exec("someone_sees_user", "alice", "alice")
+	alice.Prepare(ctx, "someone_sees_user", someoneSeesUser)
+	alice.Exec(ctx, "someone_sees_user", "alice", "alice")
 
 	// Unnamed prepared statement
-	alice.Exec(someoneSeesUser, "alice", "bob")
+	alice.Exec(ctx, someoneSeesUser, "alice", "bob")
 }
