@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	stdlog "log"
-	"net/http"
 	"os"
 	"runtime"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/gocardless/pgreplay-go/pkg/pgreplay"
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var logger kitlog.Logger
@@ -62,11 +60,8 @@ func main() {
 		logger = level.NewFilter(logger, level.AllowInfo())
 	}
 
-	go func() {
-		logger.Log("event", "metrics.listen", "address", *metricsAddress, "port", *metricsPort)
-		http.Handle("/metrics", promhttp.Handler())
-		http.ListenAndServe(fmt.Sprintf("%s:%v", *metricsAddress, *metricsPort), nil)
-	}()
+	// Starting the Prometheus Server
+	server := pgreplay.StartPrometheusServer(logger, *metricsAddress, *metricsPort)
 
 	var err error
 	var start, finish *time.Time
@@ -188,6 +183,12 @@ func main() {
 
 				logger.Log("event", "consume.finished", "error", err, "status", status)
 				logger.Log("event", "time.elapsed", "total", buildTimeElapsed(replay_started))
+				logger.Log("event", "server.status", "message", "shutting down the server!")
+				err = pgreplay.ShutdownServer(ctx, server)
+				if err != nil {
+					logger.Log("error", "server.shutdown", "message", err.Error())
+				}
+
 				os.Exit(status)
 			}
 		}
