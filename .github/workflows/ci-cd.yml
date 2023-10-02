@@ -49,7 +49,7 @@ jobs:
       run: ginkgo -race -r
   
   release:
-    if: github.ref_name == 'main'
+    if: github.ref_name == 'master'
     needs: [test]
     name: "Build and release"
     runs-on: ubuntu-latest
