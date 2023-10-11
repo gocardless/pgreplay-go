@@ -42,8 +42,7 @@ var _ = Describe("ParseCsvLog", func() {
 2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6374,"SELECT",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"connection authorized: user=alice database=pgreplay_test",,,,,,,,,"","client backend"
 2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6374,"SELECT",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"duration: 71.963 ms",,,,,,,,,"","client backend"
 2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6374,"SELECT",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"execute <unnamed>: select t.oid",,,,,,,,,"","client backend"
-2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6375,"idle in transaction",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"statement:
-						SELECT p.name, r.rating
+2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6375,"idle in transaction",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"statement: SELECT p.name, r.rating
 						FROM products p
 						JOIN reviews r ON p.id = r.product_id
 						WHERE r.rating IN (
@@ -53,8 +52,7 @@ var _ = Describe("ParseCsvLog", func() {
 						);
 				",,,,,,,,,"","client backend"
 2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6376,"SELECT",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"duration: 53.774 ms",,,,,,,,,"","client backend"
-2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6377,"idle in transaction",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"statement:
-						SELECT name, email
+2019-02-25 15:08:27.222 GMT,"postgres","postgres",7283,"199.167.158.43:57426",6480e39e.1c73,6377,"idle in transaction",2019-02-25 15:08:27.222 GMT,4/286618,0,LOG,00000,"statement: SELECT name, email
 						FROM users
 						WHERE email LIKE '@gmail.com';
 				",,,,,,,,,"","client backend"`,
@@ -74,7 +72,19 @@ var _ = Describe("ParseCsvLog", func() {
 						User:      "postgres",
 						Database:  "postgres",
 					},
-					Query: "\n\t\t\t\t\t\tSELECT p.name, r.rating\n\t\t\t\t\t\tFROM products p\n\t\t\t\t\t\tJOIN reviews r ON p.id = r.product_id\n\t\t\t\t\t\tWHERE r.rating IN (\n\t\t\t\t\t\tSELECT MIN(rating) FROM reviews\n\t\t\t\t\t\tUNION\n\t\t\t\t\t\tSELECT MAX(rating) FROM reviews\n\t\t\t\t\t\t);\n\t\t\t\t",
+					Query: "SELECT p.name, r.rating\n\t\t\t\t\t\tFROM products p\n\t\t\t\t\t\tJOIN reviews r ON p.id = r.product_id\n\t\t\t\t\t\tWHERE r.rating IN (\n\t\t\t\t\t\tSELECT MIN(rating) FROM reviews\n\t\t\t\t\t\tUNION\n\t\t\t\t\t\tSELECT MAX(rating) FROM reviews\n\t\t\t\t\t\t);\n\t\t\t\t",
+				},
+				BoundExecute{
+					Execute: Execute{
+						Details: Details{
+							Timestamp: time20190225,
+							SessionID: "6480e39e.1c73",
+							User:      "postgres",
+							Database:  "postgres",
+						},
+						Query: "select t.oid",
+					},
+					Parameters: []interface{}{},
 				},
 				Statement{
 					Details: Details{
@@ -83,7 +93,7 @@ var _ = Describe("ParseCsvLog", func() {
 						User:      "postgres",
 						Database:  "postgres",
 					},
-					Query: "\n\t\t\t\t\t\tSELECT name, email\n\t\t\t\t\t\tFROM users\n\t\t\t\t\t\tWHERE email LIKE '@gmail.com';\n\t\t\t\t",
+					Query: "SELECT name, email\n\t\t\t\t\t\tFROM users\n\t\t\t\t\t\tWHERE email LIKE '@gmail.com';\n\t\t\t\t",
 				},
 			},
 		),

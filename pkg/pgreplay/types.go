@@ -25,6 +25,25 @@ type DatabaseConnConfig struct {
 	Password string
 }
 
+type ExtractedLog struct {
+	Details
+	ActionLog string
+	Message   string
+}
+
+type LogMessage struct {
+	actionType string
+	statement  string
+}
+
+func (lm LogMessage) Prefix(parsedFrom string) string {
+	if parsedFrom == ParsedFromErrLog {
+		return lm.actionType + lm.statement
+	}
+
+	return lm.statement
+}
+
 const (
 	ConnectLabel      = "Connect"
 	StatementLabel    = "Statement"
