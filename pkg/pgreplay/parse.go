@@ -180,15 +180,7 @@ var (
 	LogDetail                     = LogMessage{ActionDetail, ""}
 )
 
-const (
-	CsvLogDuration             = "duration: "
-	CsvLogStatement            = "statement:"
-	CsvLogConnectionReceived   = "connection received:"
-	CsvLogConnectionAuthorized = "connection authorized:"
-)
-
-// ParseCsvItem constructs a Item from a CSV log line. The format we accept is
-// log_line_prefix='%t:%r:%u@%d:[%p]:' and log_destination='csvlog'.
+// ParseCsvItem constructs a Item from a CSV log line. The format we accept is log_destination='csvlog'.
 func ParseCsvItem(logline []string, unbounds map[SessionID]*Execute, buffer []byte) (Item, error) {
 	if len(logline) < 12 {
 		return nil, fmt.Errorf("failed to parse log line: '%s'", logline)
@@ -213,9 +205,7 @@ func ParseCsvItem(logline []string, unbounds map[SessionID]*Execute, buffer []by
 		Message:   msg,
 	}
 
-	return parseDetailToItem(
-		extractedLog, ParsedFromCsv, unbounds, buffer,
-	)
+	return parseDetailToItem(extractedLog, ParsedFromCsv, unbounds, buffer)
 }
 
 // ParseItem constructs a Item from Postgres errlogs. The format we accept is
@@ -346,14 +336,14 @@ func parseDetailToItem(el ExtractedLog, parsedFrom string, unbounds map[SessionI
 	// ERROR:  invalid value for parameter \"log_destination\": \"/var\"
 	// We don't replicate errors as this should be the minority of our traffic. Can safely
 	// ignore.
-	if strings.HasPrefix(el.Message, LogError.Prefix(ParsedFromErrLog)) || el.ActionLog == "ERROR" {
+	if el.ActionLog == "ERROR" || strings.HasPrefix(el.Message, LogError.Prefix(ParsedFromErrLog)) {
 		return nil, nil
 	}
 
 	// DETAIL:  Unrecognized key word: \"/var/log/postgres/postgres.log\"
 	// The previous condition catches the extended query bind detail statements, and any
 	// other DETAIL logs we can safely ignore.
-	if strings.HasPrefix(el.Message, LogDetail.Prefix(ParsedFromErrLog)) || el.ActionLog == "DETAIL" {
+	if el.ActionLog == "DETAIL" || strings.HasPrefix(el.Message, LogDetail.Prefix(ParsedFromErrLog)) {
 		return nil, nil
 	}
 
