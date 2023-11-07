@@ -136,7 +136,7 @@ $ pgreplay-go/bin/pgreplay run \
     --user postgres \
     --password postgres \
     --start 2023-07-25\ 03:10:05.000\ UTC \
-    --finish 2024-01-01\ 15:04:05.000\ UTZ
+    --finish 2024-01-01\ 15:04:05.000\ UTC
 ```
 
 If you run Prometheus then pgreplay-go exposes a metrics that can be used to
