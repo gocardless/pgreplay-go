@@ -42,6 +42,7 @@ var (
 	runPort        = run.Flag("port", "PostgreSQL database port").Default("5432").Uint16()
 	runDatname     = run.Flag("database", "PostgreSQL root database").Default("postgres").String()
 	runUser        = run.Flag("user", "PostgreSQL root user").Default("postgres").String()
+	runPassword    = run.Flag("password", "PostgreSQL root user password").Default("postgres").String()
 	runReplayRate  = run.Flag("replay-rate", "Rate of playback, will execute queries at Nx speed").Default("1").Float()
 	runErrlogInput = run.Flag("errlog-input", "Path to PostgreSQL errlog").ExistingFile()
 	runJsonInput   = run.Flag("json-input", "Path to preprocessed pgreplay JSON log file").ExistingFile()
@@ -133,6 +134,7 @@ func main() {
 				Port:     *runPort,
 				Database: *runDatname,
 				User:     *runUser,
+				Password: *runPassword,
 			},
 		)
 
