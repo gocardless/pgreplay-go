@@ -12,19 +12,19 @@ jobs:
         working-directory: "/go/src/github.com/gocardless/pgreplay-go"
     runs-on: ubuntu-latest
     container:
-      image: golang:1.13
+      image: golang:1.21.4
       env:
         PGHOST: 127.0.0.1
         PGUSER: postgres
     services:
       postgres:
-        image: postgres:11.2
+        image: postgres:14
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: pgreplay_test
           POSTGRES_PASSWORD: ''
     steps:
-    - uses: actions/checkout@v3.1.0
+    - uses: actions/checkout@v4.1.1
     - name: Install ginkgo test runner
       run: go get github.com/onsi/ginkgo/ginkgo
     - name: Install Postgres
@@ -40,13 +40,13 @@ jobs:
         working-directory: "/go/src/github.com/gocardless/pgreplay-go"
     runs-on: ubuntu-latest
     container:
-      image: golang:1.13
+      image: golang:1.21.4
       env:
         PGHOST: 127.0.0.1
         PGUSER: postgres
     services:
       postgres:
-        image: postgres:11.2
+        image: postgres:14
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: pgreplay_test
