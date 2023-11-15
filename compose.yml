@@ -1,0 +1,28 @@
+version: "3"
+services:
+  pgreplay:
+    command: bash -c "while true; do sleep 10; done"
+    build:
+      context: ./
+      dockerfile: ./dev.dockerfile
+    environment:
+      PGHOST: postgres
+      PGUSER: postgres
+    volumes:
+      - ./:/app
+    expose:
+      - 9445
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: users
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    expose:
+      - 5432
+
+volumes:
+  postgres-db-volume:

@@ -1,4 +1,4 @@
-# pgreplay-go [![CircleCI](https://circleci.com/gh/gocardless/pgreplay-go.svg?style=svg&circle-token=d020aaec823388b8e4debe552960450402964ae7)](https://circleci.com/gh/gocardless/pgreplay-go)
+# pgreplay-go [![GitHub Action](https://github.com/danicaceres1998/pgreplay-go/actions/workflows/ci-cd.yml/badge.svg?branch=master)](https://github.com/danicaceres1998/pgreplay-go/actions?query=branch%3Amaster)
 
 > See a discussion of building this tool at https://blog.lawrencejones.dev/building-a-postgresql-load-tester/
 

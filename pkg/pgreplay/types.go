@@ -4,6 +4,8 @@ import (
 	"context"
 	stdjson "encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	pgx "github.com/jackc/pgx/v5"
@@ -23,6 +25,43 @@ type DatabaseConnConfig struct {
 	Database string
 	User     string
 	Password string
+}
+
+type ExtractedLog struct {
+	Details
+	ActionLog  string
+	Message    string
+	Parameters string
+}
+
+type LogMessage struct {
+	actionType string
+	statement  string
+	regex      *regexp.Regexp
+}
+
+func (lm LogMessage) Prefix(parsedFrom string) string {
+	if parsedFrom == ParsedFromErrLog {
+		return lm.actionType + lm.statement
+	}
+
+	return lm.statement
+}
+
+func (lm LogMessage) Match(logline, parsedFrom string) bool {
+	if parsedFrom == ParsedFromErrLog {
+		logline = strings.TrimPrefix(logline, lm.actionType)
+	}
+
+	return lm.regex.MatchString(logline)
+}
+
+func (lm LogMessage) RenderQuery(msg, parsedFrom string) string {
+	if parsedFrom == ParsedFromCsv {
+		return msg[len(lm.regex.FindString(msg)):]
+	}
+
+	return strings.TrimPrefix(msg, lm.Prefix(parsedFrom))
 }
 
 const (
