@@ -1,4 +1,4 @@
-FROM golang:1.21.2
+FROM golang:1.21.4
 
 RUN apt update && apt -y upgrade
 RUN apt install -y make postgresql-client

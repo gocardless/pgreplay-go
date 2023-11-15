@@ -1,4 +1,4 @@
-FROM golang:1.21.2-alpine AS build-stage
+FROM golang:1.21.4-alpine AS build-stage
 
 WORKDIR /app
 
@@ -13,8 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./pgreplay ./cmd/pgreplay/
 FROM alpine:latest
 RUN adduser -D pgreplay-user
 
-WORKDIR /
-COPY --from=build-stage /app/pgreplay ./pgreplay
+COPY --from=build-stage /app/pgreplay /bin/pgreplay
 
 USER pgreplay-user
 
