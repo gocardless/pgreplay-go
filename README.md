@@ -19,6 +19,15 @@ You have an existing cluster and want to trial new hardware/validate
 configuration changes/move infrastructure providers. Your production services
 depend on ensuring the new change is safe and doesn't degrade performance.
 
+
+## Building this tool
+Ensure you have go installed (`brew install go`).
+
+```bash
+$ make all
+```
+This will put `pgreplay` in `/bin`, if you need to rebuild delete the contents of `/bin` & remake.
+
 ### 1. Configure production logging
 
 First capture the logs from your running Postgres instance. You may need to add
@@ -131,12 +140,16 @@ from an alternative location if this is a concern. An example run would look
 like this:
 
 ```
-$ pgreplay \
-    --errlog-file /data/postgresql-filtered.log \
+$ pgreplay-go/bin/pgreplay run \
+    --debug \
+    --errlog-input ./postgresql-filtered.log \
     --host 127.0.0.1 \
     --metrics-address 0.0.0.0 \
-    --start <benchmark-start-time> \
-    --finish <benchmark-finish-time>
+    --port 5433 \
+    --user postgres \
+    --password postgres \
+    --start 2023-07-25\ 03:10:05.000\ UTC \
+    --finish 2024-01-01\ 15:04:05.000\ UTC
 ```
 
 If you run Prometheus then pgreplay-go exposes a metrics that can be used to
