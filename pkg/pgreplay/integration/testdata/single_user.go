@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	pgx "github.com/jackc/pgx/v4"
+	pgx "github.com/jackc/pgx/v5"
 )
 
 func connect(ctx context.Context, user string) *pgx.Conn {
