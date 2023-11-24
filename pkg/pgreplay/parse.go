@@ -92,7 +92,9 @@ func ParseCsvLog(csvlog io.Reader) (items chan Item, errs chan error, done chan 
 			if err != nil {
 				logLinesErrorTotal.Inc()
 				errs <- err
+				continue
 			}
+
 			item, err := ParseCsvItem(logline, unbounds, parsebuffer)
 			if err != nil {
 				logLinesErrorTotal.Inc()
@@ -103,11 +105,6 @@ func ParseCsvLog(csvlog io.Reader) (items chan Item, errs chan error, done chan 
 				logLinesParsedTotal.Inc()
 				items <- item
 			}
-		}
-
-		// Flush the item channel by pushing nil values up-to capacity
-		for i := 0; i < ItemBufferSize; i++ {
-			items <- nil
 		}
 
 		close(items)
@@ -140,11 +137,6 @@ func ParseErrlog(errlog io.Reader) (items chan Item, errs chan error, done chan 
 				logLinesParsedTotal.Inc()
 				items <- item
 			}
-		}
-
-		// Flush the item channel by pushing nil values up-to capacity
-		for i := 0; i < ItemBufferSize; i++ {
-			items <- nil
 		}
 
 		close(items)
