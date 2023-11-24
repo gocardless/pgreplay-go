@@ -92,7 +92,6 @@ func ParseCsvLog(csvlog io.Reader) (items chan Item, errs chan error, done chan 
 			if err != nil {
 				logLinesErrorTotal.Inc()
 				errs <- err
-				continue
 			}
 
 			item, err := ParseCsvItem(logline, unbounds, parsebuffer)
