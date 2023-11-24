@@ -1,11 +1,12 @@
 package pgreplay
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	"github.com/eapache/channels"
-	"github.com/jackc/pgx"
-	"github.com/jackc/pgx/pgtype"
+	pgx "github.com/jackc/pgx/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -37,18 +38,29 @@ var (
 	)
 )
 
-func NewDatabase(cfg pgx.ConnConfig) (*Database, error) {
-	conn, err := pgx.Connect(cfg)
+func NewDatabase(ctx context.Context, cfg DatabaseConnConfig) (*Database, error) {
+	connConfig, err := pgx.ParseConfig(ParseConnData(cfg))
 	if err != nil {
 		return nil, err
 	}
 
-	return &Database{cfg, conn.ConnInfo, map[SessionID]*Conn{}}, conn.Close()
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Database{connConfig, map[SessionID]*Conn{}}, conn.Close(ctx)
+}
+
+func ParseConnData(cfg DatabaseConnConfig) string {
+	return fmt.Sprintf(
+		"postgres://%s:%s@%s:%d/%s",
+		cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database,
+	)
 }
 
 type Database struct {
-	pgx.ConnConfig
-	*pgtype.ConnInfo
+	cfg   *pgx.ConnConfig
 	conns map[SessionID]*Conn
 }
 
@@ -58,7 +70,7 @@ type Database struct {
 // indicate unrecoverable failures.
 //
 // Once all items have finished processing, both channels will be closed.
-func (d *Database) Consume(items chan Item) (chan error, chan error) {
+func (d *Database) Consume(ctx context.Context, items chan Item) (chan error, chan error) {
 	var wg sync.WaitGroup
 
 	errs, done := make(chan error, 10), make(chan error)
@@ -70,7 +82,7 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 
 			// Connection did not exist, so create a new one
 			if !ok {
-				if conn, err = d.Connect(item); err != nil {
+				if conn, err = d.Connect(ctx, item); err != nil {
 					errs <- err
 					continue
 				}
@@ -85,7 +97,7 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 					defer wg.Done()
 					defer connectionsActive.Dec()
 
-					if err := conn.Start(); err != nil {
+					if err := conn.Start(ctx); err != nil {
 						errs <- err
 					}
 				}(conn)
@@ -111,14 +123,11 @@ func (d *Database) Consume(items chan Item) (chan error, chan error) {
 // Connect establishes a new connection to the database, reusing the ConnInfo that was
 // generated when the Database was constructed. The wg is incremented whenever we
 // establish a new connection and decremented when we disconnect.
-func (d *Database) Connect(item Item) (*Conn, error) {
-	cfg := d.ConnConfig
+func (d *Database) Connect(ctx context.Context, item Item) (*Conn, error) {
+	cfg := d.cfg.Copy()
 	cfg.Database, cfg.User = item.GetDatabase(), item.GetUser()
-	cfg.CustomConnInfo = func(_ *pgx.Conn) (*pgtype.ConnInfo, error) {
-		return d.ConnInfo.DeepCopy(), nil
-	}
 
-	conn, err := pgx.Connect(cfg)
+	conn, err := pgx.Connect(ctx, cfg.ConnString())
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +148,7 @@ func (c *Conn) Close() {
 
 // Start begins to process the items that are placed into the Conn's channel. We'll finish
 // once the connection has died or we run out of items to process.
-func (c *Conn) Start() error {
+func (c *Conn) Start(ctx context.Context) error {
 	items := make(chan Item)
 	channels.Unwrap(c.Channel, items)
 	defer c.Close()
@@ -152,10 +161,10 @@ func (c *Conn) Start() error {
 		itemsProcessedTotal.Inc()
 		itemsMostRecentTimestamp.Set(float64(item.GetTimestamp().Unix()))
 
-		err := item.Handle(c.Conn)
+		err := item.Handle(ctx, c.Conn)
 
 		// If we're no longer alive, then we know we can no longer process items
-		if !c.IsAlive() {
+		if c.IsClosed() {
 			return err
 		}
 	}
@@ -164,8 +173,8 @@ func (c *Conn) Start() error {
 	// processing our logs before we saw this connection be disconnected. We should
 	// terminate ourselves by handling our own disconnect, so we can know when all our
 	// connection are done.
-	if c.IsAlive() {
-		Disconnect{}.Handle(c.Conn)
+	if !c.IsClosed() {
+		Disconnect{}.Handle(ctx, c.Conn)
 	}
 
 	return nil

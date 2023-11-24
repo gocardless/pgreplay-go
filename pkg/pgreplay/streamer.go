@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	kitlog "github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -21,7 +23,7 @@ var (
 			Help: "Fractional progress through filter range, assuming linear distribution",
 		},
 	)
-	itemsLastStreamedTimestamp = promauto.NewGauge(
+	_ = promauto.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "pgreplay_items_last_streamed_timestamp",
 			Help: "Timestamp of last streamed item",
@@ -36,10 +38,11 @@ var StreamFilterBufferSize = 100
 type Streamer struct {
 	start  *time.Time
 	finish *time.Time
+	logger kitlog.Logger
 }
 
-func NewStreamer(start, finish *time.Time) Streamer {
-	return Streamer{start, finish}
+func NewStreamer(start, finish *time.Time, logger kitlog.Logger) Streamer {
+	return Streamer{start, finish, logger}
 }
 
 // Stream takes all the items from the given items channel and returns a channel that will
@@ -62,13 +65,18 @@ func (s Streamer) Stream(items chan Item, rate float64) (chan Item, error) {
 				seenItem = true
 			}
 
-			elapsedSinceStart := time.Duration(rate) * time.Now().Sub(start)
+			elapsedSinceStart := time.Duration(rate) * time.Since(start)
 			elapsedSinceFirst := item.GetTimestamp().Sub(first)
 
 			if diff := elapsedSinceFirst - elapsedSinceStart; diff > 0 {
 				time.Sleep(time.Duration(float64(diff) / rate))
 			}
 
+			level.Debug(s.logger).Log(
+				"event", "queing.item",
+				"sessionID", string(item.GetSessionID()),
+				"user", string(item.GetUser()),
+			)
 			out <- item
 		}
 
